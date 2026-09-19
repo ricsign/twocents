@@ -40,6 +40,34 @@ const TRIP_NIGHTS = 5;
 /** Printed on the top bar and in the plan header. */
 export const TRIP_NAME = "Grad Trip ’27";
 
+/**
+ * The marker that tells the offline provider this is the scripted run.
+ *
+ * With no key the model layer falls back to `OfflineProvider`, which answers in
+ * one of two ways: it replays the hand-written grad-trip script, or it generates
+ * a negotiation over whatever session it was actually given (the judges' round
+ * types its own). This constant is how it tells them apart. The negotiation
+ * engine stamps it onto the offline hints when `isSeedScenario` holds, and the
+ * provider treats its presence as "say exactly what `design/03-town.clean.html`
+ * and `design/04-plan.clean.html` print" — which is what the rest of the demo is
+ * timed against.
+ */
+export const SEED_SCENARIO_ID = "seed-grad-trip";
+
+/**
+ * True for a session that came out of `createSeedSession`, including after a
+ * RESET.
+ *
+ * The trip name is the whole test, and deliberately so. It is the one field the
+ * seeded demo never edits — the briefing screen rewrites Maya's brief live at
+ * 0:15 of the script, so a fingerprint taken over the briefs would stop matching
+ * exactly when the demo is most exposed — while `/api/judges` always replaces it
+ * with the judge's own topic.
+ */
+export function isSeedScenario(session: Pick<DemoSession, "tripName">): boolean {
+  return session.tripName.trim() === TRIP_NAME;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Personalities                                                               */
 /* -------------------------------------------------------------------------- */

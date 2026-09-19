@@ -24,6 +24,8 @@ import { z } from "zod";
 import { PARTICIPANT_IDS, characterOf, type ParticipantId } from "@/lib/characters";
 import { OfflineProvider, getProvider } from "@/lib/llm";
 import type { CompletionRequest, LLMProvider } from "@/lib/llm/provider";
+import type { OfflineHints, OfflinePersonHint } from "@/lib/llm/scenario";
+import { SEED_SCENARIO_ID, isSeedScenario } from "@/lib/seed";
 import { scoreFairness } from "@/lib/negotiation/fairness";
 import {
   buildNegotiationUserPrompt,
@@ -332,6 +334,62 @@ function speakingOrder(mandates: readonly PublicMandate[]): ParticipantId[] {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Offline hints                                                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * What the offline provider needs to generate a run over *this* session rather
+ * than replay the grad trip.
+ *
+ * Two things about it are worth being explicit, because it is the one place in
+ * this file that touches a private ceiling outside a private report:
+ *
+ * - **It never reaches a model.** `CompletionRequest.context` is read only by
+ *   `OfflineProvider`; `AnthropicProvider` ignores the field entirely and never
+ *   serializes it into a message. It is an offline side channel, not a prompt.
+ * - **It never becomes a public line either.** The generator uses the ceilings
+ *   to choose a price the room can actually agree on, and every figure it puts
+ *   in an agent's mouth is pushed clear of every ceiling's proximity window
+ *   first. The guard below still scans; it simply has nothing to find.
+ *
+ * `scenarioId` is the switch that keeps the seeded run byte-identical: when it
+ * is set, the provider replays the script and ignores everything else here.
+ */
+function buildOfflineHints(
+  session: DemoSession,
+  briefs: Record<ParticipantId, Brief>,
+  mandates: readonly PublicMandate[],
+): Omit<OfflineHints, "offerIds" | "spokenCount" | "attempt"> {
+  const people: OfflinePersonHint[] = [];
+  for (const participantId of PARTICIPANT_IDS) {
+    const brief = briefs[participantId];
+    if (!brief) continue;
+    people.push({
+      participantId,
+      name: characterOf(participantId).name,
+      want: brief.destinationWant,
+      wants: brief.wants,
+      ceiling: brief.budgetCeiling,
+    });
+  }
+
+  const priceCap = mandates.reduce(
+    (lowest, mandate) => Math.min(lowest, STANCE_CEILING[mandate.priceStance]),
+    Number.POSITIVE_INFINITY,
+  );
+
+  const first = people[0];
+  return {
+    scenarioId: isSeedScenario(session) ? SEED_SCENARIO_ID : null,
+    topic: session.tripName,
+    when: first ? (briefs[first.participantId]?.dates ?? "") : "",
+    nights: first ? (briefs[first.participantId]?.nights ?? null) : null,
+    priceCap,
+    people,
+  };
+}
+
+/* -------------------------------------------------------------------------- */
 /* The run                                                                     */
 /* -------------------------------------------------------------------------- */
 
@@ -418,6 +476,15 @@ export async function* runNegotiation(
   const turns: NegotiationTurn[] = [];
   const offers: Offer[] = [];
 
+  const offlineBase = buildOfflineHints(opts.session, briefs, mandates);
+  /** The table as it stands, for the offline generator's beat selection. */
+  const offlineHints = (speaker: ParticipantId, attempt: number): OfflineHints => ({
+    ...offlineBase,
+    offerIds: offers.map((offer) => offer.id),
+    spokenCount: turns.filter((turn) => turn.speaker === speaker).length,
+    attempt,
+  });
+
   const aborted = (): boolean => opts.signal?.aborted === true;
 
   /**
@@ -453,7 +520,12 @@ export async function* runNegotiation(
         },
       ],
       maxTokens: TURN_MAX_TOKENS,
-      context: { speaker, round: attemptRound, participantId: speaker },
+      context: {
+        speaker,
+        round: attemptRound,
+        participantId: speaker,
+        offline: offlineHints(speaker, Math.max(0, attemptRound - round)),
+      },
     });
 
     const first = await runJson(request(correction), turnDraftSchema);
@@ -587,6 +659,7 @@ export async function* runNegotiation(
         rounds: roundsUsed,
         convergedOfferId: converged?.id ?? null,
         offers: offers.map((offer) => offer.id),
+        offline: offlineHints(order[0] as ParticipantId, 0),
       },
     },
     planSchema,
@@ -641,7 +714,11 @@ export async function* runNegotiation(
         system: prompts.system,
         messages: [{ role: "user", content: prompts.user }],
         maxTokens: REPORT_MAX_TOKENS,
-        context: { speaker: participantId, participantId },
+        context: {
+          speaker: participantId,
+          participantId,
+          offline: offlineHints(participantId, 0),
+        },
       },
       agentReportSchema,
     );
