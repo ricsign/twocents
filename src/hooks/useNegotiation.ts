@@ -18,7 +18,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ParticipantId } from "@/lib/characters";
+import { YOU, type ParticipantId } from "@/lib/characters";
 import {
   NEGOTIATION_ROUND_CAP,
   negotiationEventSchema,
@@ -229,7 +229,12 @@ export function useNegotiation(sessionId = "demo"): Negotiation {
         const response = await fetch("/api/negotiate", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ sessionId, speed: runSpeed }),
+          // `viewer` is what the route narrows each frame to: the town shows
+          // everyone's lines but only ever this person's private reasons, and
+          // the `done` frame arrives carrying one report instead of four. The
+          // plan screen reads that report back from `/api/session` anyway, so
+          // nothing here needs the other three.
+          body: JSON.stringify({ sessionId, viewer: YOU, speed: runSpeed }),
           signal: controller.signal,
         });
         if (!response.ok || !response.body) {

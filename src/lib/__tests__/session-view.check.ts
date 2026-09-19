@@ -13,6 +13,11 @@
  * symlink `<outDir>/node_modules/@` to `<outDir>` so the alias resolves at
  * runtime, then `node <outDir>/lib/__tests__/session-view.check.js`.
  *
+ * Both narrowings in `session-view.ts` are checked here, in one file, for the
+ * same reason they live in one file: `sessionViewFor` narrows the session body
+ * and `eventForViewer` narrows a frame of the negotiation stream, and a leak
+ * plugged in one and left open in the other is not plugged.
+ *
  * The assertions are deliberately made against `JSON.stringify` of the view
  * rather than against its fields. A field-by-field check proves the fields you
  * remembered to check; the serialized form is what actually goes down the wire,
@@ -29,11 +34,13 @@
 import assert from "node:assert/strict";
 import { PARTICIPANT_IDS, type ParticipantId } from "@/lib/characters";
 import { createSeedSession } from "@/lib/seed";
-import { sessionViewFor, sessionViewSchema } from "@/lib/session-view";
+import { eventForViewer, sessionViewFor, sessionViewSchema } from "@/lib/session-view";
+import { negotiationEventSchema } from "@/lib/types";
 import type {
   AgentReport,
   DemoSession,
   FairnessReport,
+  NegotiationEvent,
   NegotiationTurn,
   Offer,
   Plan,
@@ -306,6 +313,169 @@ check("an unfinished session narrows without throwing", () => {
   assert.equal(view.report, null);
   assert.equal(view.you.brief.budgetCeiling, CEILINGS.priya);
   assert.equal(sessionViewSchema.safeParse(view).success, true);
+});
+
+/* -------------------------------------------------------------------------- */
+/* The stream narrowing, per viewer                                            */
+/* -------------------------------------------------------------------------- */
+
+/** The two frame types the narrowing actually touches, named for the checks. */
+type DoneEvent = Extract<NegotiationEvent, { type: "done" }>;
+type SpeakEvent = Extract<NegotiationEvent, { type: "speak" }>;
+
+/**
+ * The terminal frame, exactly as the engine yields it: all four private
+ * reports, each naming its own ceiling in `secretsKept`. This is the frame the
+ * leak was in — one `curl -N` on `/api/negotiate` used to end with it.
+ *
+ * `elapsedMs` is pinned to a number that spells no ceiling, for the same reason
+ * `startedAt` is.
+ */
+function doneEvent(): DoneEvent {
+  const reports = {} as Record<ParticipantId, AgentReport>;
+  for (const id of PARTICIPANT_IDS) reports[id] = reportFor(id);
+  return {
+    type: "done",
+    fairness: FAIRNESS,
+    reports,
+    usage: SESSION.usage,
+    elapsedMs: 87_000,
+  };
+}
+
+/** A spoken line, carrying the speaker's real reason the way the engine sends it. */
+function speakEvent(speaker: ParticipantId): SpeakEvent {
+  return {
+    type: "speak",
+    speaker,
+    kind: "counters",
+    text: "Cancun doesn't work for us, how about Puerto Rico?",
+    privateReasonKept: `protecting a $${CEILINGS[speaker]} ceiling`,
+  };
+}
+
+/**
+ * The frames with nothing private in them.
+ *
+ * Listed out rather than sampled because "the narrowing left it alone" is a
+ * claim about every one of them, and a frame that starts passing through a
+ * reshaping step is exactly the regression this file exists to catch.
+ */
+const PUBLIC_EVENTS: NegotiationEvent[] = [
+  { type: "round", round: 1, of: 5 },
+  { type: "thinking", speaker: "jordan" },
+  { type: "offer", speaker: "maya", offer: OFFER },
+  { type: "agreed", plan: PLAN, runnerUp: null },
+];
+
+function wireEvent(event: NegotiationEvent, viewer: ParticipantId): string {
+  return JSON.stringify(eventForViewer(event, viewer));
+}
+
+for (const viewer of ["maya", "sam"] as const) {
+  check(`${viewer}: a done frame carries exactly one report, theirs`, () => {
+    const narrowed = eventForViewer(doneEvent(), viewer);
+    assert.equal(narrowed.type, "done");
+    if (narrowed.type !== "done") return;
+
+    assert.equal(narrowed.reports[viewer]?.participantId, viewer);
+    for (const id of others(viewer)) {
+      assert.equal(narrowed.reports[id], undefined, `${id}'s report rode the stream`);
+    }
+    // Same trick as the session check: `gotYou` exists on `AgentReport` and
+    // nowhere else, so counting it counts reports on the wire.
+    const count = wireEvent(doneEvent(), viewer).split('"gotYou"').length - 1;
+    assert.equal(count, 1, `expected exactly one report on the frame, found ${count}`);
+  });
+
+  check(`${viewer}: a done frame names no other participant's ceiling`, () => {
+    const json = wireEvent(doneEvent(), viewer);
+    for (const id of others(viewer)) {
+      assert.equal(
+        json.includes(String(CEILINGS[id])),
+        false,
+        `${id}'s ceiling ${CEILINGS[id]} leaked into ${viewer}'s done frame`,
+      );
+    }
+    assert.equal(
+      json.includes(String(CEILINGS[viewer])),
+      true,
+      "the viewer's own report must survive — scoped, not absent",
+    );
+    assert.equal(json.includes(marker(viewer)), true, "their own report is theirs to read");
+  });
+
+  check(`${viewer}: a speak frame from somebody else drops privateReasonKept`, () => {
+    for (const id of others(viewer)) {
+      const narrowed = eventForViewer(speakEvent(id), viewer);
+      assert.equal(narrowed.type, "speak");
+      if (narrowed.type !== "speak") continue;
+      assert.equal(
+        narrowed.privateReasonKept,
+        undefined,
+        `${id}'s private reason leaked into ${viewer}'s stream`,
+      );
+      // The spoken line itself is public and must still arrive, or the town
+      // narrows into silence.
+      assert.equal(narrowed.text, speakEvent(id).text);
+      const json = wireEvent(speakEvent(id), viewer);
+      assert.equal(json.includes("privateReasonKept"), false);
+      assert.equal(json.includes(String(CEILINGS[id])), false);
+    }
+  });
+
+  check(`${viewer}: their own speak frame keeps privateReasonKept`, () => {
+    const narrowed = eventForViewer(speakEvent(viewer), viewer);
+    assert.equal(narrowed.type, "speak");
+    if (narrowed.type !== "speak") return;
+    assert.equal(narrowed.privateReasonKept, `protecting a $${CEILINGS[viewer]} ceiling`);
+    assert.equal(wireEvent(speakEvent(viewer), viewer).includes(String(CEILINGS[viewer])), true);
+  });
+
+  check(`${viewer}: public frames pass through unchanged`, () => {
+    for (const event of PUBLIC_EVENTS) {
+      assert.deepEqual(
+        eventForViewer(event, viewer),
+        event,
+        `a ${event.type} frame was reshaped by the narrowing`,
+      );
+    }
+  });
+
+  check(`${viewer}: every narrowed frame still parses as a NegotiationEvent`, () => {
+    const frames = [doneEvent(), ...PARTICIPANT_IDS.map(speakEvent), ...PUBLIC_EVENTS];
+    for (const event of frames) {
+      // Round-tripped through JSON first, because that is what the town screen
+      // validates: the narrowed frame has to survive the wire, not just the
+      // type checker.
+      const roundTripped = JSON.parse(wireEvent(event, viewer)) as unknown;
+      const parsed = negotiationEventSchema.safeParse(roundTripped);
+      assert.equal(
+        parsed.success,
+        true,
+        `a narrowed ${event.type} frame no longer parses: ${JSON.stringify(parsed.error?.issues)}`,
+      );
+    }
+  });
+}
+
+check("a done frame for maya and one for sam are not the same frame", () => {
+  assert.notEqual(wireEvent(doneEvent(), "maya"), wireEvent(doneEvent(), "sam"));
+});
+
+check("a done frame for a viewer with no report carries an empty report map", () => {
+  const partial: DoneEvent = {
+    type: "done",
+    fairness: FAIRNESS,
+    reports: { maya: reportFor("maya") },
+    usage: SESSION.usage,
+    elapsedMs: 87_000,
+  };
+  const narrowed = eventForViewer(partial, "priya");
+  assert.equal(narrowed.type, "done");
+  if (narrowed.type !== "done") return;
+  assert.deepEqual(narrowed.reports, {});
+  assert.equal(negotiationEventSchema.safeParse(narrowed).success, true);
 });
 
 /* -------------------------------------------------------------------------- */
