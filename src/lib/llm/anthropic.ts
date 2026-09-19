@@ -29,6 +29,9 @@ import {
 /** The single tool every structured call is forced through. */
 const EMIT_TOOL = "emit";
 
+/** Anthropic's own endpoint. See the constructor for why it is named here. */
+const ANTHROPIC_API_URL = "https://api.anthropic.com";
+
 /** Pause before the one retry. Short: the demo budget is seconds, not minutes. */
 const RETRY_BACKOFF_MS = 400;
 
@@ -95,6 +98,15 @@ function jsonSchemaFor(schema: z.ZodType<unknown>): Record<string, unknown> {
   return { type: "object" };
 }
 
+/** The emit call in a response, if the model made one. */
+function emitBlockOf(
+  message: Anthropic.Messages.Message,
+): Anthropic.Messages.ToolUseBlock | undefined {
+  return message.content.find(
+    (b): b is Anthropic.Messages.ToolUseBlock => b.type === "tool_use" && b.name === EMIT_TOOL,
+  );
+}
+
 /** Joins every text block of a response into the one string a caller wanted. */
 function textOf(message: Anthropic.Messages.Message): string {
   return message.content
@@ -116,7 +128,14 @@ export class AnthropicProvider implements LLMProvider {
   private readonly client: Anthropic;
 
   constructor(apiKey: string) {
-    this.client = new Anthropic({ apiKey });
+    const workspaceId = process.env.ANTHROPIC_WORKSPACE_ID?.trim();
+
+    this.client = new Anthropic({
+      apiKey,
+      baseURL: process.env.TWOCENTS_ANTHROPIC_BASE_URL?.trim() || ANTHROPIC_API_URL,
+      authToken: null,
+      ...(workspaceId ? { defaultHeaders: { "anthropic-workspace-id": workspaceId } } : {}),
+    });
   }
 
   async text(req: CompletionRequest): Promise<CompletionResult<string>> {
@@ -157,6 +176,16 @@ export class AnthropicProvider implements LLMProvider {
       input_schema: jsonSchemaFor(schema) as unknown as Anthropic.Messages.Tool["input_schema"],
     } satisfies Anthropic.Messages.Tool;
 
+    // Forcing the tool is what makes the output JSON by construction: the model
+    // cannot answer in prose even if it wants to. A searching call cannot be
+    // forced that way — the force forbids every other tool, web search
+    // included — so it is offered both and asked to finish on `emit`, and the
+    // sweep-up call below is what restores the guarantee if it does not.
+    const searching = req.webSearch;
+    const tools: Anthropic.Messages.ToolUnion[] = searching
+      ? [{ type: "web_search_20250305", name: "web_search", max_uses: searching.maxUses }, tool]
+      : [tool];
+
     const message = await this.guarded(req.tag, (signal) =>
       this.client.messages.create(
         {
@@ -165,18 +194,44 @@ export class AnthropicProvider implements LLMProvider {
           ...(req.temperature === undefined ? {} : { temperature: req.temperature }),
           system: req.system,
           messages: req.messages,
-          tools: [tool],
-          // Forcing the tool is what makes the output JSON by construction:
-          // the model cannot answer in prose even if it wants to.
-          tool_choice: { type: "tool", name: EMIT_TOOL },
+          tools,
+          tool_choice: searching ? { type: "auto" } : { type: "tool", name: EMIT_TOOL },
         },
         { signal },
       ),
     );
 
-    const block = message.content.find(
-      (b): b is Anthropic.Messages.ToolUseBlock => b.type === "tool_use",
-    );
+    let inputTokens = message.usage.input_tokens;
+    let outputTokens = message.usage.output_tokens;
+    let block = emitBlockOf(message);
+
+    if (!block && searching) {
+      // It searched and then answered in prose. The findings are in the content
+      // we just got, so they are handed back verbatim and the answer is forced
+      // out of them — one extra call, only on the turn that needed it, and no
+      // second search.
+      const followUp = await this.guarded(req.tag, (signal) =>
+        this.client.messages.create(
+          {
+            model: MODELS[tier],
+            max_tokens: req.maxTokens ?? DEFAULT_MAX_TOKENS,
+            system: req.system,
+            messages: [
+              ...req.messages,
+              { role: "assistant", content: message.content },
+              { role: "user", content: "Now emit that as structured data. Do not search again." },
+            ],
+            tools: [tool],
+            tool_choice: { type: "tool", name: EMIT_TOOL },
+          },
+          { signal },
+        ),
+      );
+      inputTokens += followUp.usage.input_tokens;
+      outputTokens += followUp.usage.output_tokens;
+      block = emitBlockOf(followUp);
+    }
+
     if (!block) {
       throw new LlmError(req.tag, "Model did not call the emit tool");
     }
@@ -191,7 +246,7 @@ export class AnthropicProvider implements LLMProvider {
     return {
       value: parsed.data,
       raw: JSON.stringify(block.input),
-      usage: usageFrom(tier, message.usage.input_tokens, message.usage.output_tokens),
+      usage: usageFrom(tier, inputTokens, outputTokens),
     };
   }
 

@@ -257,6 +257,70 @@ const TULUM_OFFER = {
   proposedBy: "jordan",
 } as const;
 
+/* -------------------------------------------------------------------------- */
+/* 3b. Canned trip prices, for when the web search cannot run                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Roughly what a place costs a student in shoulder season: a round trip and a
+ * clean bed, per person, in USD.
+ *
+ * These stand in when the live check is unavailable, so the room still has real
+ * numbers to argue over rather than a shrug. They are ballpark by design — the
+ * check they feed decides "is this in the right neighbourhood", not "is this
+ * the price", so being off by fifty dollars changes no outcome.
+ */
+const TRIP_PRICES: { pattern: RegExp; flights: number; perNight: number }[] = [
+  { pattern: /puerto rico|san juan|culebra/i, flights: 210, perNight: 65 },
+  { pattern: /cancun|tulum|akumal|mexico|oaxaca/i, flights: 260, perNight: 80 },
+  { pattern: /costa rica|san jos|tamarindo/i, flights: 420, perNight: 70 },
+  { pattern: /hawaii|maui|honolulu|oahu/i, flights: 550, perNight: 130 },
+  { pattern: /iceland|reykjav/i, flights: 500, perNight: 110 },
+  { pattern: /portugal|lisbon|porto|algarve/i, flights: 620, perNight: 70 },
+  { pattern: /spain|barcelona|madrid|seville/i, flights: 650, perNight: 75 },
+  { pattern: /greece|athens|santorini|crete/i, flights: 750, perNight: 85 },
+  { pattern: /ital|rome|sicily|amalfi|florence/i, flights: 700, perNight: 90 },
+  { pattern: /japan|tokyo|kyoto|osaka/i, flights: 1150, perNight: 95 },
+  { pattern: /thailand|bangkok|phuket|chiang/i, flights: 1000, perNight: 45 },
+  { pattern: /bali|indonesia/i, flights: 1100, perNight: 50 },
+];
+
+/** Somewhere we have no figure for. A mid-haul beach trip, near enough. */
+const UNKNOWN_TRIP = { flights: 500, perNight: 85 };
+
+function money(n: number): string {
+  return `$${Math.round(n).toLocaleString("en-US")}`;
+}
+
+/**
+ * The canned verdict on one offer.
+ *
+ * Same rule the live prompt is given — out by roughly a third or more is not
+ * bookable — so a run on canned facts and a run on real ones disagree about
+ * numbers but never about what counts as a fantasy.
+ */
+function offerCheck(req: CompletionRequest): Record<string, unknown> {
+  const ctx = req.context;
+  const destination = ctxString(ctx, "destination") || "somewhere warm";
+  const nights = Math.max(1, Math.trunc(ctxNumber(ctx, "nights") ?? 5));
+  const claimed = ctxNumber(ctx, "perPerson") ?? 0;
+
+  const prices = TRIP_PRICES.find((entry) => entry.pattern.test(destination)) ?? UNKNOWN_TRIP;
+  const realistic = prices.flights + prices.perNight * nights;
+  const bookable = claimed <= 0 || claimed >= realistic * 0.67;
+
+  return {
+    bookable,
+    realisticPerPerson: realistic,
+    note: bookable
+      ? `Flights run about ${money(prices.flights)} and a bed about ${money(prices.perNight)} a night, so ${money(realistic)} a person is the real number.`
+      : `Flights alone are about ${money(prices.flights)} — ${money(claimed)} a person does not buy ${destination}.`,
+    // Empty on purpose: nothing was searched, so there is nothing to cite, and
+    // a canned host name on the card would be the one lie in this file.
+    sources: [],
+  };
+}
+
 interface Beat {
   speaker: ParticipantId;
   kind: "proposes" | "pushes back" | "trades" | "counters" | "agrees";
@@ -623,6 +687,8 @@ function cannedData(req: CompletionRequest): unknown {
         ...(beat.privateReasonKept ? { privateReasonKept: beat.privateReasonKept } : {}),
       };
     }
+    case "offer-check":
+      return offerCheck(req);
     case "final-plan":
       return FINAL_PLAN;
     case "agent-report":
@@ -824,6 +890,8 @@ export class OfflineProvider implements LLMProvider {
         const report = reportFor(req);
         return `${String(report.gotYou)} ${String(report.tradedAway)} ${String(report.why)}`;
       }
+      case "offer-check":
+        return String(offerCheck(req).note);
       case "brief-extract":
         return safeStringify(briefExtract(req));
     }

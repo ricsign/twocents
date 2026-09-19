@@ -33,6 +33,11 @@ import type { OfflineHints, OfflinePersonHint } from "@/lib/llm/scenario";
 import { SEED_SCENARIO_ID, isSeedScenario } from "@/lib/seed";
 import { scoreFairness } from "@/lib/negotiation/fairness";
 import {
+  UNCHECKED,
+  buildFeasibilityRequest,
+  webSearchEnabled,
+} from "@/lib/negotiation/feasibility";
+import {
   buildNegotiationUserPrompt,
   buildPlanPrompt,
   buildPrivateReportPrompt,
@@ -43,6 +48,7 @@ import {
   EMPTY_USAGE,
   NEGOTIATION_ROUND_CAP,
   agentReportSchema,
+  offerFeasibilitySchema,
   offerSchema,
   planSchema,
   secretsFromBrief,
@@ -57,6 +63,7 @@ import {
   type NegotiationEvent,
   type NegotiationTurn,
   type Offer,
+  type OfferFeasibility,
   type Plan,
   type PriceStance,
   type PublicMandate,
@@ -282,6 +289,10 @@ function findConvergedOffer(
 
     if (offer.perPerson > stanceCeiling) continue;
 
+    // A price the web says does not exist is not something the room gets to
+    // settle on, however enthusiastically it agreed.
+    if (offer.feasibility?.bookable === false) continue;
+
     const breaksSomething = PARTICIPANT_IDS.some((participantId) => {
       const brief = briefs[participantId];
       return brief
@@ -298,6 +309,18 @@ function findConvergedOffer(
   }
 
   return null;
+}
+
+/**
+ * Whether the rotation that just finished was the whole table assenting.
+ *
+ * Read off the transcript rather than tracked in a flag, so it stays a function
+ * of what was actually said — the same property `findConvergedOffer` has, and
+ * the reason two runs of one session behave identically.
+ */
+function roomAssented(turns: readonly NegotiationTurn[], roomSize: number): boolean {
+  if (roomSize === 0 || turns.length < roomSize) return false;
+  return turns.slice(-roomSize).every((turn) => turn.kind === "agrees");
 }
 
 /** A plan-shaped view of one offer, for scoring it before anyone has agreed. */
@@ -457,6 +480,34 @@ export async function* runNegotiation(
     }
   };
 
+  /**
+   * Sends one offer to the web and returns what came back.
+   *
+   * Deliberately not routed through `runJson`: that degrades the whole run to
+   * the script on any failure, which is right for a turn the room is waiting on
+   * and wrong here. A search that fails should cost this one offer its live
+   * verdict, not cost the remaining rounds their live agents — so the failure
+   * is caught here and answered from the canned prices instead.
+   */
+  const checkOffer = async (offer: Offer): Promise<OfferFeasibility> => {
+    if (!webSearchEnabled()) return UNCHECKED;
+    const request = buildFeasibilityRequest(offer);
+
+    try {
+      const result = await provider.json(request, offerFeasibilitySchema);
+      usage = sumUsage(usage, result.usage);
+      return result.value;
+    } catch (error) {
+      logOnce("offer-check", error);
+      try {
+        const canned = await offline.json(request, offerFeasibilitySchema);
+        return canned.value;
+      } catch {
+        return UNCHECKED;
+      }
+    }
+  };
+
   const briefs = {} as Record<ParticipantId, Brief>;
   const mandates: PublicMandate[] = [];
   const systemPrompts = {} as Record<ParticipantId, string>;
@@ -570,15 +621,17 @@ export async function* runNegotiation(
     // it untouched.
     if (draft.offer) {
       const offer = draft.offer;
-      draft = {
-        ...draft,
-        offer: {
-          ...offer,
-          highlights: offer.highlights.map((line) => checkForLeaks(line, secrets).redacted),
-          flightNote: checkForLeaks(offer.flightNote, secrets).redacted,
-          lodgingNote: checkForLeaks(offer.lodgingNote, secrets).redacted,
-        },
+      const scrubbed: Offer = {
+        ...offer,
+        highlights: offer.highlights.map((line) => checkForLeaks(line, secrets).redacted),
+        flightNote: checkForLeaks(offer.flightNote, secrets).redacted,
+        lodgingNote: checkForLeaks(offer.lodgingNote, secrets).redacted,
       };
+
+      // Overwritten rather than merged: whatever the proposer put in this field
+      // is its own opinion of its own price, and the whole point is that the
+      // web gets the last word on that.
+      draft = { ...draft, offer: { ...scrubbed, feasibility: await checkOffer(scrubbed) } };
     }
 
     return draft;
@@ -647,6 +700,20 @@ export async function* runNegotiation(
       // actually been tested rather than merely proposed.
       if (round >= 2) {
         converged = findConvergedOffer(offers, mandates, briefs, turns);
+      }
+
+      // A room can also settle in a way that rule cannot see: everyone in this
+      // rotation said "agrees" and nobody put anything new up. The arithmetic
+      // may still be holding out — a stance ceiling or a fairness row can
+      // object after the table itself has stopped arguing — but spending the
+      // remaining rounds then buys nothing except agents agreeing again, which
+      // is both dead screen time and four model calls a round. The offer they
+      // are agreeing to is the one they have been talking about: the leading
+      // one. If none exists there is nothing to have agreed to, and the loop
+      // carries on.
+      if (converged === null && roomAssented(turns, order.length)) {
+        converged =
+          [...offers].reverse().find((offer) => offer.feasibility?.bookable !== false) ?? null;
       }
     }
   } catch (error) {

@@ -37,6 +37,7 @@ import {
   type FairnessRow,
   type NegotiationTurn,
   type Offer,
+  type OfferFeasibility,
   type Personality,
   type Plan,
   type PublicMandate,
@@ -77,9 +78,25 @@ export function formatOffer(offer: Offer, names?: DisplayNames): string {
     `by ${displayNameFor(names, offer.proposedBy)}`,
     offer.highlights.join(" / "),
     offer.flightNote,
+    formatFeasibility(offer.feasibility),
   ]
     .filter((part) => String(part).trim().length > 0)
     .join(" · ");
+}
+
+/**
+ * The web's verdict, in the form the other agents read it.
+ *
+ * Front-loaded with the judgement rather than the sentence, because this is the
+ * part an agent is meant to act on: an offer marked NOT BOOKABLE is something
+ * to push back on, and burying that after a clause of prose makes it easy to
+ * skim past.
+ */
+function formatFeasibility(check: OfferFeasibility | undefined): string {
+  if (!check) return "";
+  const real =
+    check.realisticPerPerson === null ? "" : ` (really ~$${check.realisticPerPerson}pp)`;
+  return `${check.bookable ? "CHECKED" : "NOT BOOKABLE"}: ${check.note}${real}`;
 }
 
 /** `r2 Jordan trades: "Fine. But we keep the catamaran day."` */
@@ -151,6 +168,7 @@ export function buildPublicSystemPrompt(
     "4. One or two sentences. This is a table, not an essay. No preamble, no stage directions, no quotation marks around your own line.",
     "5. Move the negotiation: propose something concrete, push back on something specific, or trade one thing for another. Do not restate a point you have already made.",
     "6. When an option on the table works for your person, say so and agree. Agreement is a win, not a loss.",
+    "7. Every option is priced against the live web before you see it. An option marked NOT BOOKABLE is a fantasy — say what it really costs and argue from that number, or put up something that exists. Never agree to one.",
   ].join("\n");
 }
 

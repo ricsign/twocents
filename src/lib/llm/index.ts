@@ -82,7 +82,7 @@ let cached: LLMProvider | null = null;
 export function getProvider(): LLMProvider {
   if (cached) return cached;
 
-  const key = process.env.ANTHROPIC_API_KEY;
+  const key = process.env.ANTHROPIC_API_KEY?.trim();
   const forcedOffline = process.env.TWOCENTS_FORCE_OFFLINE === "1";
 
   cached = key && !forcedOffline

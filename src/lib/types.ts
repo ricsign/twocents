@@ -417,6 +417,28 @@ export function mandateFromBrief(
  * field-by-field itinerary: agents trade entire options, which is what makes
  * the transcript readable in the ten seconds a judge gives it.
  */
+/**
+ * What the live web said about an offer.
+ *
+ * Attached by the engine after the line was spoken, never taken from the agent
+ * that proposed it — a model grading its own price is not evidence, for the
+ * same reason `secretsKept` and `groupTotal` are computed rather than
+ * generated. See `lib/negotiation/feasibility.ts`.
+ */
+export const offerFeasibilitySchema = z.object({
+  /** False only when the claimed price is clearly out of reach. */
+  bookable: z.boolean(),
+  /** The all-in per-person figure the search supports, or null if it found none. */
+  realisticPerPerson: z.number().nullable(),
+  /** One short sentence, written to be read aloud at the table. */
+  note: z.string(),
+  /** Bare host names behind the verdict. Empty when nothing was searched. */
+  sources: z.array(z.string()),
+});
+
+/** The verdict on one offer. */
+export type OfferFeasibility = z.infer<typeof offerFeasibilitySchema>;
+
 export const offerSchema = z.object({
   id: z.string(),
   /** Headline, as printed on the offer card: "Puerto Rico". */
@@ -433,6 +455,8 @@ export const offerSchema = z.object({
   lodgingNote: z.string(),
   /** Whose agent put it on the table. Drives the card's name tag colour. */
   proposedBy: participantIdSchema,
+  /** Set by the engine, not the proposer. Absent until the check has run. */
+  feasibility: offerFeasibilitySchema.optional(),
 });
 
 /** One trip proposal. */

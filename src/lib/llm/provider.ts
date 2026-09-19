@@ -34,6 +34,7 @@ export type TaskTag =
   | "brief-extract"    // pulling structured fields out of that chat
   | "voice-preview"    // one sample line showing how the agent will sound
   | "negotiation-turn" // one agent's public line in the town
+  | "offer-check"      // is the trip an agent just proposed actually bookable?
   | "final-plan"       // the agreed plan, once
   | "agent-report";    // one agent's private report to its human
 
@@ -85,6 +86,9 @@ export const TIER_FOR_TASK: Record<TaskTag, ModelTier> = {
   "brief-extract": "fast",
   "voice-preview": "fast",
   "negotiation-turn": "fast",
+  // Reading search results and answering "yes, roughly that price" is
+  // comprehension, not composition, so it does not need the large model.
+  "offer-check": "fast",
   "final-plan": "smart",
   "agent-report": "smart",
 };
@@ -118,6 +122,15 @@ export interface CompletionRequest {
   temperature?: number;
   /** Free-form hints the offline provider keys its canned answer off. */
   context?: Record<string, unknown>;
+  /**
+   * Ground this call in a live web search.
+   *
+   * Anthropic runs the queries server-side and hands the results back inside
+   * the same request, so this stays one call rather than a tool loop we drive.
+   * The offline provider ignores it and answers from canned facts, which is
+   * what keeps a run with no network on the same rails as one with it.
+   */
+  webSearch?: { maxUses: number };
 }
 
 /**

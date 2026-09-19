@@ -114,6 +114,18 @@ function TurnRow({
           <div className="text-[14px] font-semibold text-bark">
             {terms(turn.offer)}
           </div>
+          {turn.offer.feasibility ? (
+            <div
+              className="text-[12px] font-semibold"
+              style={{ color: kindColour(turn.offer.feasibility.bookable ? "agrees" : "pushes back") }}
+            >
+              {turn.offer.feasibility.bookable ? "checked" : "not bookable"} ·{" "}
+              {turn.offer.feasibility.note}
+              {turn.offer.feasibility.sources.length > 0
+                ? ` · ${turn.offer.feasibility.sources.join(", ")}`
+                : ""}
+            </div>
+          ) : null}
           {/* The card is the readable form; the line itself is what was said,
               and the accessible record has to carry it. */}
           <span className="sr-only">{turn.text}</span>
