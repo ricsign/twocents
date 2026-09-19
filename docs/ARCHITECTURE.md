@@ -43,7 +43,12 @@ src/
    and rejects any that leaks a private figure, re-rolling the line. This is
    the product; it is enforced in code, not left to the prompt.
 
-2. **The demo never dies on stage.** If `ANTHROPIC_API_KEY` is missing, a call
+2. **The app builds and runs with no network at all.** Fonts are self-hosted
+   (`src/app/fonts.ts`), sprites are local, and the model layer falls back to
+   canned answers with no API key. A venue with no wifi costs the demo its
+   live model calls and nothing else.
+
+3. **The demo never dies on stage.** If `ANTHROPIC_API_KEY` is missing, a call
    errors, or a call takes too long, the provider falls back to the scripted
    run, which produces the same event shapes at the same cadence. The UI
    cannot tell the difference.

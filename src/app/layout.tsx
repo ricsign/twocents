@@ -1,27 +1,6 @@
 import type { Metadata, Viewport } from "next";
-import { Nunito, Press_Start_2P, Pixelify_Sans } from "next/font/google";
+import { nunito, pressStart, pixelify } from "./fonts";
 import "./globals.css";
-
-const nunito = Nunito({
-  variable: "--font-nunito",
-  subsets: ["latin"],
-  weight: ["400", "600", "700", "800"],
-  display: "swap",
-});
-
-const pressStart = Press_Start_2P({
-  variable: "--font-press-start",
-  subsets: ["latin"],
-  weight: "400",
-  display: "swap",
-});
-
-const pixelify = Pixelify_Sans({
-  variable: "--font-pixelify",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  display: "swap",
-});
 
 export const metadata: Metadata = {
   title: "twocents.ai",
