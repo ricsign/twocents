@@ -65,7 +65,7 @@ export function TownScreen() {
         ) : null}
 
         <PixelLink
-          href="/brief"
+          href="/judges"
           variant="gold"
           raised
           className="h-[60px] w-full px-2 text-center text-[9px] leading-tight min-[1100px]:text-[10px]"
