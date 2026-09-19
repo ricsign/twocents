@@ -11,9 +11,9 @@
  */
 
 import { useEffect, useRef } from "react";
-import { CHARACTERS } from "@/lib/characters";
+import { agentName } from "@/lib/characters";
 import type { NegotiationTurn, Offer, TurnKind } from "@/lib/types";
-import type { ParticipantId } from "@/lib/characters";
+import type { DisplayNames, ParticipantId } from "@/lib/characters";
 import { Avatar } from "@/components/ui/Sprite";
 
 /** The card's second line: the three terms a judge can read in a glance. */
@@ -35,9 +35,12 @@ function kindColour(kind: TurnKind): string {
 export function Transcript({
   turns,
   thinkingSpeaker,
+  names,
 }: {
   turns: NegotiationTurn[];
   thinkingSpeaker: ParticipantId | null;
+  /** Who each speaker is. Falls back to the cast when the session has none. */
+  names?: DisplayNames;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -57,7 +60,7 @@ export function Transcript({
       >
         <div className="mt-auto flex flex-col gap-[22px]">
           {turns.map((turn) => (
-            <TurnRow key={turn.id} turn={turn} />
+            <TurnRow key={turn.id} turn={turn} names={names} />
           ))}
 
           {thinkingSpeaker ? (
@@ -66,9 +69,10 @@ export function Transcript({
                 id={thinkingSpeaker}
                 size={28}
                 style={{ opacity: 0.7 }}
+                names={names}
               />
               <span className="blink text-[14px] font-bold">
-                {CHARACTERS[thinkingSpeaker].name}’s agent is thinking…
+                {agentName(thinkingSpeaker, names)} is thinking…
               </span>
             </div>
           ) : null}
@@ -80,15 +84,19 @@ export function Transcript({
   );
 }
 
-function TurnRow({ turn }: { turn: NegotiationTurn }) {
-  const character = CHARACTERS[turn.speaker];
-
+function TurnRow({
+  turn,
+  names,
+}: {
+  turn: NegotiationTurn;
+  names?: DisplayNames;
+}) {
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2.5">
-        <Avatar id={turn.speaker} size={28} />
+        <Avatar id={turn.speaker} size={28} names={names} />
         <span className="head text-[18px] font-bold">
-          {character.name}’s agent
+          {agentName(turn.speaker, names)}
         </span>
         <span
           className="text-[13px] font-bold"

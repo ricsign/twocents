@@ -11,19 +11,22 @@
  */
 
 import { useState } from "react";
-import type { ParticipantId } from "@/lib/characters";
-import { CHARACTERS, PARTICIPANT_IDS } from "@/lib/characters";
+import type { DisplayNames, ParticipantId } from "@/lib/characters";
+import { PARTICIPANT_IDS, displayNameFor } from "@/lib/characters";
 import { Avatar } from "@/components/ui/Sprite";
 
 export function ApprovalRow({
   you,
   approvals,
   sessionId,
+  names,
 }: {
   you: ParticipantId;
   /** Who has approved, as the session knows it. */
   approvals: Record<ParticipantId, boolean>;
   sessionId?: string;
+  /** What the other three are called. You are always "You". */
+  names?: DisplayNames;
 }) {
   const [mine, setMine] = useState(approvals[you] ?? false);
   const [failed, setFailed] = useState(false);
@@ -67,13 +70,17 @@ export function ApprovalRow({
           const done = isYou ? mine : (approvals[id] ?? false);
           return (
             <li key={id} className="flex flex-col items-center gap-1.5">
-              <Avatar id={id} size={48} />
+              <Avatar id={id} size={48} names={names} />
               <span
                 className={`text-[13px] font-bold ${
                   done ? "text-leaf-deep" : "text-bark"
                 }`}
               >
-                {isYou ? (done ? "You ✓" : "You") : `${CHARACTERS[id].name}${done ? " ✓" : ""}`}
+                {isYou
+                  ? done
+                    ? "You ✓"
+                    : "You"
+                  : `${displayNameFor(names, id)}${done ? " ✓" : ""}`}
               </span>
             </li>
           );

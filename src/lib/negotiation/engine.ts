@@ -21,7 +21,12 @@
  */
 
 import { z } from "zod";
-import { PARTICIPANT_IDS, characterOf, type ParticipantId } from "@/lib/characters";
+import {
+  PARTICIPANT_IDS,
+  displayNameFor,
+  type DisplayNames,
+  type ParticipantId,
+} from "@/lib/characters";
 import { OfflineProvider, getProvider } from "@/lib/llm";
 import type { CompletionRequest, LLMProvider } from "@/lib/llm/provider";
 import type { OfflineHints, OfflinePersonHint } from "@/lib/llm/scenario";
@@ -43,6 +48,7 @@ import {
   secretsFromBrief,
   sumUsage,
   turnKindSchema,
+  displayNamesOf,
   mandateFromBrief,
   type AgentReport,
   type Brief,
@@ -359,6 +365,7 @@ function buildOfflineHints(
   session: DemoSession,
   briefs: Record<ParticipantId, Brief>,
   mandates: readonly PublicMandate[],
+  names: DisplayNames,
 ): Omit<OfflineHints, "offerIds" | "spokenCount" | "attempt"> {
   const people: OfflinePersonHint[] = [];
   for (const participantId of PARTICIPANT_IDS) {
@@ -366,7 +373,7 @@ function buildOfflineHints(
     if (!brief) continue;
     people.push({
       participantId,
-      name: characterOf(participantId).name,
+      name: displayNameFor(names, participantId),
       want: brief.destinationWant,
       wants: brief.wants,
       ceiling: brief.budgetCeiling,
@@ -453,6 +460,9 @@ export async function* runNegotiation(
   const briefs = {} as Record<ParticipantId, Brief>;
   const mandates: PublicMandate[] = [];
   const systemPrompts = {} as Record<ParticipantId, string>;
+  // Read once for the whole run, so every prompt, every generated line and the
+  // name tag above the sprite are answering from the same map.
+  const names = displayNamesOf(opts.session);
 
   for (const participantId of PARTICIPANT_IDS) {
     const state = opts.session.participants[participantId];
@@ -469,6 +479,7 @@ export async function* runNegotiation(
       mandate,
       state.personality,
       mandates,
+      names,
     );
   }
 
@@ -476,7 +487,7 @@ export async function* runNegotiation(
   const turns: NegotiationTurn[] = [];
   const offers: Offer[] = [];
 
-  const offlineBase = buildOfflineHints(opts.session, briefs, mandates);
+  const offlineBase = buildOfflineHints(opts.session, briefs, mandates, names);
   /** The table as it stands, for the offline generator's beat selection. */
   const offlineHints = (speaker: ParticipantId, attempt: number): OfflineHints => ({
     ...offlineBase,
@@ -531,7 +542,7 @@ export async function* runNegotiation(
     const first = await runJson(request(correction), turnDraftSchema);
     let draft: TurnDraft = first ?? {
       kind: "agrees",
-      text: `${characterOf(speaker).name}'s agent backs where this is going.`,
+      text: `${displayNameFor(names, speaker)}'s agent backs where this is going.`,
     };
 
     // THE GUARANTEE. Every generated line is scanned against its own speaker's
@@ -648,7 +659,7 @@ export async function* runNegotiation(
 
   /* ---- Finalisation: one smart call for the plan, one per private report --- */
 
-  const planPrompts = buildPlanPrompt(turns, offers, mandates);
+  const planPrompts = buildPlanPrompt(turns, offers, mandates, names);
   const planValue = await runJson(
     {
       tag: "final-plan",
@@ -707,7 +718,14 @@ export async function* runNegotiation(
     if (!brief) continue;
 
     const row = fairness.rows.find((entry) => entry.participantId === participantId) ?? null;
-    const prompts = buildPrivateReportPrompt(participantId, brief, plan, turns, row);
+    const prompts = buildPrivateReportPrompt(
+      participantId,
+      brief,
+      plan,
+      turns,
+      row,
+      names,
+    );
     const value = await runJson(
       {
         tag: "agent-report",

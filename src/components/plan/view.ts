@@ -13,8 +13,12 @@
  * disagree. No React, no I/O.
  */
 
-import { PARTICIPANT_IDS, type ParticipantId } from "@/lib/characters";
-import { sessionViewFor, type SessionView } from "@/lib/session-view";
+import { PARTICIPANT_IDS, type DisplayNames, type ParticipantId } from "@/lib/characters";
+import {
+  displayNamesFromView,
+  sessionViewFor,
+  type SessionView,
+} from "@/lib/session-view";
 import type {
   AgentReport,
   DemoSession,
@@ -30,6 +34,11 @@ export interface PlanView {
   /** Yours alone. The other three never reach this browser. */
   report: AgentReport | null;
   approvals: Record<ParticipantId, boolean>;
+  /**
+   * What the four people are called, carried on the view so the meter and the
+   * roster never have to look a name up for themselves.
+   */
+  names: DisplayNames;
   /** Token and cost accounting for the run that produced this plan. */
   usage: Usage;
 }
@@ -57,6 +66,7 @@ export function planViewFrom(view: SessionView): PlanView | null {
     fairness,
     report,
     approvals,
+    names: displayNamesFromView(view),
     usage,
   };
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { ParticipantId } from "@/lib/characters";
+import type { DisplayNames, ParticipantId } from "@/lib/characters";
 import type { Brief } from "@/lib/types";
 import { PixelLink } from "@/components/ui/PixelButton";
 import { AgentKnowsPanel } from "./AgentKnowsPanel";
@@ -19,11 +19,14 @@ export function BriefScreen({
   briefed,
   initialMessages,
   initialBrief,
+  names,
 }: {
   participantId: ParticipantId;
   briefed: ParticipantId[];
   initialMessages: ChatMessage[];
   initialBrief: Brief;
+  /** Read from the session on the server, so a judges' round renames the room. */
+  names?: DisplayNames;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [brief, setBrief] = useState<Brief>(initialBrief);
@@ -86,12 +89,13 @@ export function BriefScreen({
           messages={messages}
           pending={pending}
           onSend={send}
+          names={names}
         />
       </div>
 
       <div className="flex min-h-0 flex-col gap-8">
         <AgentKnowsPanel brief={brief} />
-        <BriefedRoster briefed={briefed} you={participantId} />
+        <BriefedRoster briefed={briefed} you={participantId} names={names} />
         <PixelLink
           href="/personality"
           variant="primary"

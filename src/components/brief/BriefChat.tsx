@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { ParticipantId } from "@/lib/characters";
-import { CHARACTERS } from "@/lib/characters";
+import type { DisplayNames, ParticipantId } from "@/lib/characters";
+import { agentName } from "@/lib/characters";
 import { Avatar } from "@/components/ui/Sprite";
 import { PixelButton } from "@/components/ui/PixelButton";
 import { LockIcon } from "@/components/ui/PixelIcons";
@@ -18,11 +18,14 @@ export function BriefChat({
   messages,
   pending,
   onSend,
+  names,
 }: {
   participantId: ParticipantId;
   messages: ChatMessage[];
   pending: boolean;
   onSend: (text: string) => void;
+  /** Who this agent speaks for. The cast name when nobody said otherwise. */
+  names?: DisplayNames;
 }) {
   const [draft, setDraft] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
@@ -43,7 +46,7 @@ export function BriefChat({
 
   return (
     <section className="px-frame m-1 flex min-h-0 flex-1 flex-col bg-card">
-      <ChatHeader participantId={participantId} />
+      <ChatHeader participantId={participantId} names={names} />
 
       <div
         role="log"
@@ -90,15 +93,25 @@ export function BriefChat({
   );
 }
 
-function ChatHeader({ participantId }: { participantId: ParticipantId }) {
-  const name = CHARACTERS[participantId].name;
+function ChatHeader({
+  participantId,
+  names,
+}: {
+  participantId: ParticipantId;
+  names?: DisplayNames;
+}) {
   return (
     <header className="flex items-center justify-between gap-4 border-b-4 border-ink px-5 py-5 sm:px-7">
       <div className="flex items-center gap-4 sm:gap-[18px]">
-        <Avatar id={participantId} size={64} className="bob shrink-0" />
+        <Avatar
+          id={participantId}
+          size={64}
+          className="bob shrink-0"
+          names={names}
+        />
         <div className="flex flex-col gap-1">
           <h1 className="head text-[24px] leading-none font-bold sm:text-[28px]">
-            {name}’s agent
+            {agentName(participantId, names)}
           </h1>
           <p className="m-0 text-[15px] font-semibold text-bark">
             Argues for you. Never repeats you.

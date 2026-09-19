@@ -651,7 +651,10 @@ export function buildScenario(hints: OfflineHints): Scenario {
   const premiumTemplate = pickTemplate(copy.premium, opener);
   const agreedTemplate = pickTemplate(copy.budget, holdout);
 
-  const nights = copy.overnight ? (hints.nights ?? 5) : 1;
+  // Zero, not one: a dinner occupies no nights, and `Offer.nights` is the field
+  // the plan header prints. Claiming a single night to keep the number truthy
+  // is what produced "Tonight 7pm - 1 nights".
+  const nights = copy.overnight ? (hints.nights ?? 5) : 0;
 
   /**
    * What the affordable option actually delivers, in the humans' own words.

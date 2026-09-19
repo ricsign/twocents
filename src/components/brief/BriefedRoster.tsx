@@ -1,5 +1,5 @@
-import type { ParticipantId } from "@/lib/characters";
-import { CHARACTERS, PARTICIPANT_IDS } from "@/lib/characters";
+import type { DisplayNames, ParticipantId } from "@/lib/characters";
+import { PARTICIPANT_IDS, displayNameFor } from "@/lib/characters";
 import { Avatar } from "@/components/ui/Sprite";
 
 /**
@@ -9,9 +9,12 @@ import { Avatar } from "@/components/ui/Sprite";
 export function BriefedRoster({
   briefed,
   you,
+  names,
 }: {
   briefed: ParticipantId[];
   you: ParticipantId;
+  /** What the other three are called. You are always "You". */
+  names?: DisplayNames;
 }) {
   const count = PARTICIPANT_IDS.filter((id) => briefed.includes(id)).length;
   // You sit last, the way the mockup reads: three ticks, then the gap you fill.
@@ -30,13 +33,13 @@ export function BriefedRoster({
           const isYou = id === you;
           return (
             <li key={id} className="flex flex-col items-center gap-1.5">
-              <Avatar id={id} size={48} />
+              <Avatar id={id} size={48} names={names} />
               <span
                 className={`text-[13px] font-bold ${
                   isYou ? "text-bark" : "text-leaf-deep"
                 }`}
               >
-                {isYou ? "You" : `${CHARACTERS[id].name} ✓`}
+                {isYou ? "You" : `${displayNameFor(names, id)} ✓`}
               </span>
             </li>
           );

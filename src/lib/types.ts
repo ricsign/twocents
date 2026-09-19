@@ -11,7 +11,11 @@
  */
 
 import { z } from "zod";
-import { PARTICIPANT_IDS, type ParticipantId } from "@/lib/characters";
+import {
+  PARTICIPANT_IDS,
+  type DisplayNames,
+  type ParticipantId,
+} from "@/lib/characters";
 
 /**
  * Runtime gate for the four fixed friends. Built from the same tuple the UI
@@ -672,6 +676,14 @@ export const participantStateSchema = z.object({
   personality: personalitySchema,
   /** The human's tap on the plan screen. Four of these end the demo. */
   approved: z.boolean(),
+  /**
+   * What this person is called, when they are not the cast member in the seat.
+   *
+   * Absent on the seeded grad trip, which is why that run still reads Maya /
+   * Jordan / Sam / Priya everywhere. The judges' round sets it to the name a
+   * judge typed, and `displayNameFor` is the only thing that reads it.
+   */
+  displayName: z.string().optional(),
 });
 
 /** Everything the app knows about one of the four friends. */
@@ -701,6 +713,22 @@ export const demoSessionSchema = z.object({
 
 /** The whole demo state. */
 export type DemoSession = z.infer<typeof demoSessionSchema>;
+
+/**
+ * The name overrides this session carries, gathered into one map.
+ *
+ * A collector, not a decision: it only reads what was stored. What a person is
+ * *called* is still decided in exactly one place, `displayNameFor`, which this
+ * map is fed to.
+ */
+export function displayNamesOf(session: DemoSession): DisplayNames {
+  const names: Partial<Record<ParticipantId, string>> = {};
+  for (const id of PARTICIPANT_IDS) {
+    const displayName = session.participants[id]?.displayName?.trim();
+    if (displayName) names[id] = displayName;
+  }
+  return names;
+}
 
 /** Re-exported so consumers of the model need only one import. */
 export type { ParticipantId };

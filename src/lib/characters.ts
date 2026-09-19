@@ -61,7 +61,37 @@ export function characterOf(id: ParticipantId): Character {
   return CHARACTERS[id];
 }
 
-/** "Maya's agent" — used constantly in transcript and report copy. */
-export function agentName(id: ParticipantId): string {
-  return `${CHARACTERS[id].name}’s agent`;
+/**
+ * A per-person override of the cast names, keyed by id.
+ *
+ * Partial on purpose: the seeded grad trip carries none of these, so every id
+ * falls through to `Character.name` and the scripted run is untouched. The
+ * judges' round carries four, and the whole room is renamed by handing one map
+ * around rather than by editing the cast.
+ */
+export type DisplayNames = Readonly<Partial<Record<ParticipantId, string>>>;
+
+/**
+ * THE resolver: the one function in the app that decides what a person is
+ * called.
+ *
+ * Every visible label - name tags, transcript rows, fairness bars, approval
+ * rosters, the briefing header - and every generated line goes through here.
+ * Sprites, colours and ids are untouched by it: a renamed Maya is still the
+ * coral seat with the coral sprite, because only the name is overridable.
+ *
+ * Total: a missing or blank override is not an override, so there is no state
+ * in which a person renders nameless.
+ */
+export function displayNameFor(
+  names: DisplayNames | undefined,
+  id: ParticipantId,
+): string {
+  const override = names?.[id]?.trim();
+  return override ? override : CHARACTERS[id].name;
+}
+
+/** "Dana's agent" - used constantly in transcript and report copy. */
+export function agentName(id: ParticipantId, names?: DisplayNames): string {
+  return `${displayNameFor(names, id)}’s agent`;
 }
