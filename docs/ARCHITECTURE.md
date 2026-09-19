@@ -25,7 +25,7 @@ src/
     llm/
       provider.ts         Provider interface, model tiers, cost accounting
       anthropic.ts        live provider
-      scripted.ts         deterministic fallback, used with no API key
+      offline.ts          deterministic fallback, used with no API key
       index.ts            selects a provider
     negotiation/
       engine.ts           the round loop
