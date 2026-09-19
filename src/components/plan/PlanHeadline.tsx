@@ -26,6 +26,18 @@ function lowerFirst(text: string): string {
 }
 
 /**
+ * "5 nights", "1 night", or nothing at all.
+ *
+ * A dinner has no nights — `lib/llm/scenario.ts` gives a non-overnight option
+ * zero of them — so the clause is dropped rather than printed as "0 nights",
+ * and a single night is singular.
+ */
+function nightsClause(nights: number | null): string | null {
+  if (nights === null || nights <= 0) return null;
+  return `${nights} ${nights === 1 ? "night" : "nights"}`;
+}
+
+/**
  * The runner-up, said once.
  *
  * The reason a runner-up lost usually names it and its price all over again
@@ -46,6 +58,7 @@ function runnerUpLine(plan: Plan): string | null {
 export function PlanHeadline({ plan }: { plan: Plan }) {
   const { offer } = plan;
   const runnerUp = runnerUpLine(plan);
+  const nights = nightsClause(offer.nights);
 
   return (
     <div className="flex flex-col gap-8 min-[1100px]:gap-9">
@@ -70,7 +83,7 @@ export function PlanHeadline({ plan }: { plan: Plan }) {
         </h1>
 
         <p className="head m-0 text-[20px] font-semibold text-bark min-[1100px]:text-[26px]">
-          {offer.region} · {offer.dates} · {offer.nights} nights
+          {[offer.region, offer.dates, nights].filter(Boolean).join(" · ")}
         </p>
       </div>
 

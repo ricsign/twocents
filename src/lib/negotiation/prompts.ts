@@ -24,7 +24,11 @@
  * Pure: no I/O, no React, no Node APIs.
  */
 
-import { characterOf, type ParticipantId } from "@/lib/characters";
+import {
+  displayNameFor,
+  type DisplayNames,
+  type ParticipantId,
+} from "@/lib/characters";
 import {
   describePersonality,
   isPrivateLine,
@@ -63,14 +67,14 @@ function bullets(items: readonly string[], empty = "(none)"): string {
  * fields cost. This is the "compact structured offers between agents" line of
  * the plan, made literal.
  */
-export function formatOffer(offer: Offer): string {
+export function formatOffer(offer: Offer, names?: DisplayNames): string {
   return [
     offer.destination,
     offer.region,
     offer.dates,
-    `${offer.nights}n`,
+    offer.nights > 0 ? `${offer.nights}n` : "",
     `$${offer.perPerson}pp`,
-    `by ${characterOf(offer.proposedBy).name}`,
+    `by ${displayNameFor(names, offer.proposedBy)}`,
     offer.highlights.join(" / "),
     offer.flightNote,
   ]
@@ -79,8 +83,12 @@ export function formatOffer(offer: Offer): string {
 }
 
 /** `r2 Jordan trades: "Fine. But we keep the catamaran day."` */
-export function formatTurn(turn: NegotiationTurn, maxChars = 160): string {
-  const name = characterOf(turn.speaker).name;
+export function formatTurn(
+  turn: NegotiationTurn,
+  maxChars = 160,
+  names?: DisplayNames,
+): string {
+  const name = displayNameFor(names, turn.speaker);
   const text = turn.text.length > maxChars ? `${turn.text.slice(0, maxChars - 1)}…` : turn.text;
   return `r${turn.round} ${name} ${turn.kind}: ${text}`;
 }
@@ -106,19 +114,20 @@ export function buildPublicSystemPrompt(
   mandate: PublicMandate,
   personality: Personality,
   roster: readonly PublicMandate[],
+  names?: DisplayNames,
 ): string {
-  const me = characterOf(participantId);
+  const me = displayNameFor(names, participantId);
   const others = roster.filter((entry) => entry.participantId !== participantId);
 
   const othersBlock = others
     .map((entry) => {
-      const name = characterOf(entry.participantId).name;
+      const name = displayNameFor(names, entry.participantId);
       return `- ${name}: wants ${entry.destinationWant}; on money they are "${entry.priceStance}".`;
     })
     .join("\n");
 
   return [
-    `You are ${me.name}'s agent. You are sitting at a table with three other agents, each arguing for their own person. You are negotiating one shared trip.`,
+    `You are ${me}'s agent. You are sitting at a table with three other agents, each arguing for their own person. You are negotiating one shared trip.`,
     "",
     `HOW YOU SOUND`,
     describePersonality(personality),
@@ -129,7 +138,7 @@ export function buildPublicSystemPrompt(
     `- On money: ${mandate.priceStance}`,
     `- Hard nos you may state openly:`,
     bullets(mandate.dealbreakers, "  (none you can state)"),
-    `- What a good trip gives ${me.name}:`,
+    `- What a good trip gives ${me}:`,
     bullets(mandate.wants),
     "",
     `THE OTHERS`,
@@ -211,6 +220,7 @@ export function buildPlanPrompt(
   turns: readonly NegotiationTurn[],
   offers: readonly Offer[],
   mandates: readonly PublicMandate[],
+  names?: DisplayNames,
 ): PromptPair {
   const system = [
     "You are the notetaker at a negotiation between four agents. The talking is over. Write down what they agreed.",
@@ -226,16 +236,20 @@ export function buildPlanPrompt(
     "WHO WAS AT THE TABLE",
     mandates
       .map((mandate) => {
-        const name = characterOf(mandate.participantId).name;
+        const name = displayNameFor(names, mandate.participantId);
         return `- ${name}: ${mandate.destinationWant}; on money "${mandate.priceStance}"; wants: ${mandate.wants.join(", ")}`;
       })
       .join("\n"),
     "",
     "OFFERS THAT WERE PUT ON THE TABLE",
-    offers.length === 0 ? "(none)" : offers.map((offer) => `- ${formatOffer(offer)}`).join("\n"),
+    offers.length === 0
+      ? "(none)"
+      : offers.map((offer) => `- ${formatOffer(offer, names)}`).join("\n"),
     "",
     "THE TRANSCRIPT",
-    turns.length === 0 ? "(nothing was said)" : turns.map((turn) => formatTurn(turn, 200)).join("\n"),
+    turns.length === 0
+      ? "(nothing was said)"
+      : turns.map((turn) => formatTurn(turn, 200, names)).join("\n"),
     "",
     "Write the plan.",
   ].join("\n");
@@ -266,8 +280,9 @@ export function buildPrivateReportPrompt(
   plan: Plan,
   turns: readonly NegotiationTurn[],
   fairnessRow: FairnessRow | null,
+  names?: DisplayNames,
 ): PromptPair {
-  const me = characterOf(participantId);
+  const me = displayNameFor(names, participantId);
   const ownTurns = turns.filter((turn) => turn.speaker === participantId);
 
   const privateLines = [...brief.dealbreakers, ...brief.notes]
@@ -275,7 +290,7 @@ export function buildPrivateReportPrompt(
     .map(stripPrivateMarker);
 
   const system = [
-    `You are ${me.name}'s agent, writing to ${me.name} alone after the negotiation. Nobody else will ever read this. Speak to them directly, second person, no greeting.`,
+    `You are ${me}'s agent, writing to ${me} alone after the negotiation. Nobody else will ever read this. Speak to them directly, second person, no greeting.`,
     "",
     "Three answers, nothing else:",
     "- gotYou: what you won for them, concretely, in one or two sentences.",
@@ -286,7 +301,7 @@ export function buildPrivateReportPrompt(
   ].join("\n");
 
   const user = [
-    `WHAT ${me.name.toUpperCase()} TOLD YOU IN PRIVATE`,
+    `WHAT ${me.toUpperCase()} TOLD YOU IN PRIVATE`,
     `- Wanted: ${brief.destinationWant}`,
     `- Dates: ${brief.dates}`,
     brief.budgetCeiling === null
@@ -299,10 +314,10 @@ export function buildPrivateReportPrompt(
     privateLines.length > 0 ? `- Kept private:\n${bullets(privateLines)}` : "",
     "",
     "THE AGREED PLAN",
-    formatOffer(plan.offer),
+    formatOffer(plan.offer, names),
     `Group total $${plan.groupTotal}. Delivers: ${plan.keptWants.join(", ")}.`,
     plan.runnerUp
-      ? `Runner-up: ${formatOffer(plan.runnerUp)} — lost because ${plan.runnerUpLostBecause}`
+      ? `Runner-up: ${formatOffer(plan.runnerUp, names)} — lost because ${plan.runnerUpLostBecause}`
       : "No runner-up.",
     "",
     "HOW THE METER SCORED THEM",
@@ -313,7 +328,7 @@ export function buildPrivateReportPrompt(
     "WHAT YOU SAID IN THE ROOM",
     ownTurns.length === 0
       ? "(you did not speak)"
-      : ownTurns.map((turn) => formatTurn(turn, 200)).join("\n"),
+      : ownTurns.map((turn) => formatTurn(turn, 200, names)).join("\n"),
     "",
     "Write the report.",
   ]
@@ -343,11 +358,12 @@ export function buildBriefReplyPrompt(
   participantId: ParticipantId,
   personality: Personality,
   transcript: readonly { role: "agent" | "human"; text: string }[],
+  names?: DisplayNames,
 ): PromptPair {
-  const me = characterOf(participantId);
+  const me = displayNameFor(names, participantId);
 
   const system = [
-    `You are ${me.name}'s agent. You are talking to ${me.name} in private, before you go and negotiate their trip with three other agents.`,
+    `You are ${me}'s agent. You are talking to ${me} in private, before you go and negotiate their trip with three other agents.`,
     "",
     `HOW YOU SOUND`,
     describePersonality(personality),
@@ -367,7 +383,7 @@ export function buildBriefReplyPrompt(
     transcript.length === 0
       ? "(nothing yet — open the conversation)"
       : transcript
-          .map((message) => `${message.role === "human" ? me.name : "You"}: ${message.text}`)
+          .map((message) => `${message.role === "human" ? me : "You"}: ${message.text}`)
           .join("\n"),
     "",
     "Write your next reply.",

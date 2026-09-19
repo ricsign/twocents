@@ -1,7 +1,7 @@
 import Image from "next/image";
 import type { CSSProperties } from "react";
-import type { ParticipantId } from "@/lib/characters";
-import { CHARACTERS } from "@/lib/characters";
+import type { DisplayNames, ParticipantId } from "@/lib/characters";
+import { CHARACTERS, agentName, displayNameFor } from "@/lib/characters";
 
 /** Flat 16x16 portrait, scaled up with nearest-neighbour. */
 export function Avatar({
@@ -9,17 +9,20 @@ export function Avatar({
   size = 28,
   className = "",
   style,
+  names,
 }: {
   id: ParticipantId;
   size?: number;
   className?: string;
   style?: CSSProperties;
+  /** Name overrides for the alt text; omitted means the cast name. */
+  names?: DisplayNames;
 }) {
   const c = CHARACTERS[id];
   return (
     <Image
       src={c.avatar}
-      alt={c.name}
+      alt={displayNameFor(names, id)}
       width={size}
       height={size}
       unoptimized
@@ -42,6 +45,7 @@ export function CharacterSprite({
   className = "",
   style,
   label,
+  names,
 }: {
   id: ParticipantId;
   size?: number;
@@ -49,6 +53,8 @@ export function CharacterSprite({
   className?: string;
   style?: CSSProperties;
   label?: string;
+  /** Name overrides for the default label; omitted means the cast name. */
+  names?: DisplayNames;
 }) {
   const c = CHARACTERS[id];
   const anim =
@@ -56,7 +62,7 @@ export function CharacterSprite({
   return (
     <div
       role="img"
-      aria-label={label ?? `${c.name}’s agent`}
+      aria-label={label ?? agentName(id, names)}
       className={`spr ${anim} ${className}`}
       style={{
         width: size,

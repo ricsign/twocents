@@ -242,6 +242,10 @@ export async function POST(request: Request): Promise<Response> {
       brief: briefFrom(mini, topic, when),
       personality: personalityFor(mini, splurgy.get(id) ?? SPLURGY_NO_CEILING),
       approved: false,
+      // The seat keeps its sprite and its colour; only the name changes. From
+      // here on `displayNameFor` is what every label and every prompt reads,
+      // so the judge watches their own party argue rather than the cast.
+      displayName: mini.name,
     };
   }
 

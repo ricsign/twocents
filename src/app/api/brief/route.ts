@@ -17,11 +17,13 @@ import { getProvider } from "@/lib/llm";
 import {
   briefMessageSchema,
   briefSchema,
+  displayNamesOf,
   participantIdSchema,
   secretsFromBrief,
   type Brief,
 } from "@/lib/types";
-import { CHARACTERS } from "@/lib/characters";
+import { displayNameFor } from "@/lib/characters";
+import { getOrCreateDefault } from "@/lib/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -112,7 +114,9 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   const { participantId, messages, brief: known } = parsed.data;
-  const name = CHARACTERS[participantId].name;
+  // The same resolver the room uses, so an agent briefed in a judges' round
+  // calls its human by the name the judge typed.
+  const name = displayNameFor(displayNamesOf(getOrCreateDefault()), participantId);
   const lastHuman = [...messages].reverse().find((m) => m.role === "human")?.text ?? "";
   const turnIndex = messages.filter((m) => m.role === "human").length - 1;
 

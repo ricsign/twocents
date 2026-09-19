@@ -20,7 +20,11 @@
  * Pure: no I/O, no React, no Node APIs.
  */
 
-import { PARTICIPANT_IDS, characterOf } from "@/lib/characters";
+import {
+  PARTICIPANT_IDS,
+  displayNameFor,
+  type DisplayNames,
+} from "@/lib/characters";
 import type {
   Brief,
   FairnessReport,
@@ -641,7 +645,10 @@ function keptRatio(row: FairnessRow): number {
  * or an honest naming of who paid for the plan — never a number, because the
  * plan screen is the one place all four humans look at the same time.
  */
-export function fairnessSummaryLine(report: FairnessReport): string {
+export function fairnessSummaryLine(
+  report: FairnessReport,
+  names?: DisplayNames,
+): string {
   if (report.nobodyOverruled || report.rows.length === 0) return "Nobody overruled";
 
   // Rows are already in PARTICIPANT_IDS order, so a tie resolves the same way
@@ -650,5 +657,5 @@ export function fairnessSummaryLine(report: FairnessReport): string {
   for (const row of report.rows) {
     if (keptRatio(row) < keptRatio(worst)) worst = row;
   }
-  return `${characterOf(worst.participantId).name} gave up the most`;
+  return `${displayNameFor(names, worst.participantId)} gave up the most`;
 }

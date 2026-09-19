@@ -9,7 +9,7 @@
  * cannot be missed — the card has to *look* like it is not for the room.
  */
 
-import type { ParticipantId } from "@/lib/characters";
+import type { DisplayNames, ParticipantId } from "@/lib/characters";
 import { Avatar } from "@/components/ui/Sprite";
 import type { AgentReport } from "@/lib/types";
 
@@ -25,9 +25,12 @@ interface Block {
 export function AgentReportCard({
   report,
   you,
+  names,
 }: {
   report: AgentReport;
   you: ParticipantId;
+  /** Only reaches the avatar's alt text; the card speaks to you directly. */
+  names?: DisplayNames;
 }) {
   const blocks: Block[] = [
     { label: "GOT YOU", body: report.gotYou, className: "text-leaf" },
@@ -38,7 +41,7 @@ export function AgentReportCard({
   return (
     <section className="flex flex-col gap-5 border-4 border-ink bg-ink px-7 pt-6 pb-7 text-parchment">
       <div className="flex items-center gap-3.5">
-        <Avatar id={you} size={48} className="bob" />
+        <Avatar id={you} size={48} className="bob" names={names} />
         <div className="flex flex-col gap-1">
           <h2 className="head m-0 text-[24px] leading-none font-bold">
             Your agent’s report

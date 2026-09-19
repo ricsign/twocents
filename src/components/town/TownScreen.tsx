@@ -8,13 +8,14 @@
  */
 
 import { useEffect } from "react";
+import type { DisplayNames } from "@/lib/characters";
 import { PixelLink } from "@/components/ui/PixelButton";
 import { useNegotiation } from "@/hooks/useNegotiation";
 import { Room } from "./Room";
 import { TownControls } from "./TownControls";
 import { Transcript } from "./Transcript";
 
-export function TownScreen() {
+export function TownScreen({ names }: { names?: DisplayNames }) {
   const negotiation = useNegotiation();
   const { start, status } = negotiation;
 
@@ -35,6 +36,7 @@ export function TownScreen() {
           roundsTotal={negotiation.roundsTotal}
           elapsedMs={negotiation.elapsedMs}
           live={status === "running"}
+          names={names}
         >
           <TownControls
             paused={paused}
@@ -51,6 +53,7 @@ export function TownScreen() {
         <Transcript
           turns={negotiation.turns}
           thinkingSpeaker={negotiation.thinkingSpeaker}
+          names={names}
         />
 
         {negotiation.plan ? (

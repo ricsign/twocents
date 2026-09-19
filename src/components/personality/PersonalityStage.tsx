@@ -1,4 +1,4 @@
-import type { ParticipantId } from "@/lib/characters";
+import type { DisplayNames, ParticipantId } from "@/lib/characters";
 import { agentName } from "@/lib/characters";
 import { CharacterSprite, Scenery } from "@/components/ui/Sprite";
 
@@ -16,9 +16,12 @@ const AGENT_SIZE = "clamp(150px, 24vw, 224px)";
 export function PersonalityStage({
   participantId,
   line,
+  names,
 }: {
   participantId: ParticipantId;
   line: string;
+  /** Who this agent speaks for, on the tag under the sprite. */
+  names?: DisplayNames;
 }) {
   return (
     <div className="flex flex-col gap-7">
@@ -55,6 +58,7 @@ export function PersonalityStage({
           id={participantId}
           size={224}
           state="idle"
+          names={names}
           className="bob-tall relative mb-[46px] min-[1100px]:mb-[60px]"
           style={{
             width: AGENT_SIZE,
@@ -64,7 +68,7 @@ export function PersonalityStage({
         />
 
         <div className="disp absolute bottom-4 left-1/2 -translate-x-1/2 bg-ink px-3.5 py-2 text-[9px] whitespace-nowrap text-gold">
-          {agentName(participantId).toUpperCase()}
+          {agentName(participantId, names).toUpperCase()}
         </div>
       </div>
 

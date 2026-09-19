@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import type { ParticipantId } from "@/lib/characters";
+import type { DisplayNames, ParticipantId } from "@/lib/characters";
 import type { Personality } from "@/lib/types";
 import { PixelLink } from "@/components/ui/PixelButton";
 import { PersonalityStage } from "./PersonalityStage";
@@ -37,11 +37,14 @@ export function PersonalityScreen({
   participantId,
   initialPersonality,
   initialLine,
+  names,
 }: {
   participantId: ParticipantId;
   initialPersonality: Personality;
   /** The line on the first frame, so the screen opens on the designed one. */
   initialLine: string;
+  /** Who the agent on the stage speaks for. */
+  names?: DisplayNames;
 }) {
   const [personality, setPersonality] = useState<Personality>(initialPersonality);
   const [line, setLine] = useState(initialLine);
@@ -106,7 +109,11 @@ export function PersonalityScreen({
 
   return (
     <main className="grid min-h-0 flex-1 grid-cols-1 gap-10 px-4 pt-8 pb-10 sm:px-8 min-[1100px]:grid-cols-[520px_minmax(0,1fr)] min-[1100px]:gap-16 min-[1100px]:px-14 min-[1100px]:pt-11 min-[1100px]:pb-12">
-      <PersonalityStage participantId={participantId} line={line} />
+      <PersonalityStage
+        participantId={participantId}
+        line={line}
+        names={names}
+      />
 
       <div className="flex min-h-0 flex-col gap-8">
         <h1 className="head m-0 text-[30px] leading-none font-bold min-[1100px]:text-[40px]">

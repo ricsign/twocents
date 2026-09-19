@@ -25,7 +25,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import type { ParticipantId } from "@/lib/characters";
+import type { DisplayNames, ParticipantId } from "@/lib/characters";
 import { Scenery } from "@/components/ui/Sprite";
 import type { Bubble } from "@/hooks/useNegotiation";
 import { Agent, STAGE } from "./Agent";
@@ -57,6 +57,7 @@ export function Room({
   roundsTotal,
   elapsedMs,
   live,
+  names,
   children,
 }: {
   currentSpeaker: ParticipantId | null;
@@ -67,6 +68,8 @@ export function Room({
   elapsedMs: number;
   /** False while paused or finished: the recording light stops blinking. */
   live: boolean;
+  /** What the four people are called on their name tags. */
+  names?: DisplayNames;
   /** The speed controls, so they sit inside the room's frame, unscaled. */
   children?: ReactNode;
 }) {
@@ -123,6 +126,7 @@ export function Room({
             id={id}
             speaking={currentSpeaker === id}
             thinking={thinkingSpeaker === id}
+            names={names}
           />
         ))}
 

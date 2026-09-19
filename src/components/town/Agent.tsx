@@ -9,8 +9,8 @@
  * other three are in front of it.
  */
 
-import type { ParticipantId } from "@/lib/characters";
-import { CHARACTERS, YOU } from "@/lib/characters";
+import type { DisplayNames, ParticipantId } from "@/lib/characters";
+import { YOU, displayNameFor } from "@/lib/characters";
 import { CharacterSprite } from "@/components/ui/Sprite";
 
 /** Sprite top-left, in room pixels. Sprites are 112px square. */
@@ -33,10 +33,13 @@ export function Agent({
   id,
   speaking,
   thinking,
+  names,
 }: {
   id: ParticipantId;
   speaking: boolean;
   thinking: boolean;
+  /** Who is in this seat. The sprite and the colour never change with it. */
+  names?: DisplayNames;
 }) {
   const at = STAGE[id];
   const you = id === YOU;
@@ -52,6 +55,7 @@ export function Agent({
         id={id}
         size={SPRITE}
         state={speaking ? "talking" : "idle"}
+        names={names}
       />
 
       <div
@@ -61,7 +65,7 @@ export function Agent({
           color: you ? "#FFFFFF" : "#F4E9D0",
         }}
       >
-        {CHARACTERS[id].name.toUpperCase()}
+        {displayNameFor(names, id).toUpperCase()}
         {you ? " · YOU" : ""}
       </div>
     </div>

@@ -130,7 +130,7 @@ export function PlanScreen({
       <div className="flex min-w-0 flex-col gap-9">
         <PlanHeadline plan={view.plan} />
         <div className="mt-auto flex flex-col gap-6 pt-2">
-          <FairnessMeter fairness={view.fairness} />
+          <FairnessMeter fairness={view.fairness} names={view.names} />
           <RunStats
             usage={view.usage}
             agreedInMs={view.plan.agreedInMs}
@@ -140,12 +140,15 @@ export function PlanScreen({
       </div>
 
       <div className="flex min-w-0 flex-col gap-8">
-        {view.report ? <AgentReportCard report={view.report} you={YOU} /> : null}
+        {view.report ? (
+          <AgentReportCard report={view.report} you={YOU} names={view.names} />
+        ) : null}
         <div className="mt-auto pt-2">
           <ApprovalRow
             you={YOU}
             approvals={view.approvals}
             sessionId={view.sessionId}
+            names={view.names}
           />
         </div>
       </div>

@@ -28,9 +28,10 @@
 
 import { z } from "zod";
 import {
-  CHARACTERS,
   PARTICIPANT_IDS,
   YOU,
+  displayNameFor,
+  type DisplayNames,
   type ParticipantId,
 } from "@/lib/characters";
 import {
@@ -44,6 +45,7 @@ import {
   planSchema,
   publicMandateSchema,
   usageSchema,
+  displayNamesOf,
   type DemoSession,
 } from "@/lib/types";
 
@@ -159,6 +161,10 @@ export function sessionViewFor(
   viewerId: ParticipantId,
 ): SessionView {
   const mine = session.participants[viewerId];
+  // Resolved once, here, so `name` on both halves of the view is the same
+  // answer the town and the prompts get. A client that only has the view can
+  // rebuild the map with `displayNamesFromView`, without ever seeing a brief.
+  const names = displayNamesOf(session);
 
   const others: OtherParticipantView[] = [];
   for (const id of PARTICIPANT_IDS) {
@@ -168,7 +174,7 @@ export function sessionViewFor(
     const { bio, ...sliders } = state.personality;
     others.push({
       participantId: id,
-      name: CHARACTERS[id].name,
+      name: displayNameFor(names, id),
       // Derived, not copied: the ceiling becomes a stance inside this call and
       // the private dealbreakers are filtered out by the same function the
       // negotiation prompt uses.
@@ -186,7 +192,7 @@ export function sessionViewFor(
     startedAt: session.startedAt,
     you: {
       participantId: viewerId,
-      name: CHARACTERS[viewerId].name,
+      name: displayNameFor(names, viewerId),
       brief: mine?.brief ?? emptyBrief(viewerId),
       personality: mine?.personality ?? EMPTY_PERSONALITY,
       approved: mine?.approved ?? false,
@@ -200,6 +206,21 @@ export function sessionViewFor(
     report: session.reports?.[viewerId] ?? null,
     usage: session.usage,
   };
+}
+
+/**
+ * The name map, rebuilt from a view that has already crossed the wire.
+ *
+ * `sessionViewFor` resolved every `name` on the way out, so this is a gather
+ * rather than a second opinion: the browser gets the names the room used and
+ * none of the briefs they were stored beside.
+ */
+export function displayNamesFromView(view: SessionView): DisplayNames {
+  const names: Partial<Record<ParticipantId, string>> = {
+    [view.you.participantId]: view.you.name,
+  };
+  for (const other of view.others) names[other.participantId] = other.name;
+  return names;
 }
 
 /* -------------------------------------------------------------------------- */

@@ -8,7 +8,11 @@
  * labelled by the person's name and that caption together.
  */
 
-import { CHARACTERS } from "@/lib/characters";
+import {
+  CHARACTERS,
+  displayNameFor,
+  type DisplayNames,
+} from "@/lib/characters";
 import { Avatar } from "@/components/ui/Sprite";
 import type { FairnessReport, FairnessRow } from "@/lib/types";
 
@@ -51,7 +55,7 @@ function Segments({ filled, color }: { filled: number; color: string }) {
   );
 }
 
-function Row({ row }: { row: FairnessRow }) {
+function Row({ row, names }: { row: FairnessRow; names?: DisplayNames }) {
   const character = CHARACTERS[row.participantId];
   const caption = captionFor(row);
   const nameId = `fairness-name-${row.participantId}`;
@@ -65,10 +69,10 @@ function Row({ row }: { row: FairnessRow }) {
       aria-labelledby={`${nameId} ${captionId}`}
       className="grid grid-cols-[40px_minmax(0,1fr)] items-center gap-x-4 gap-y-2 min-[700px]:grid-cols-[40px_90px_minmax(0,1fr)_170px]"
     >
-      <Avatar id={row.participantId} size={40} />
+      <Avatar id={row.participantId} size={40} names={names} />
 
       <span id={nameId} className="head text-[20px] font-bold">
-        {character.name}
+        {displayNameFor(names, row.participantId)}
       </span>
 
       <div className="col-start-2 min-[700px]:col-start-3">
@@ -85,7 +89,13 @@ function Row({ row }: { row: FairnessRow }) {
   );
 }
 
-export function FairnessMeter({ fairness }: { fairness: FairnessReport }) {
+export function FairnessMeter({
+  fairness,
+  names,
+}: {
+  fairness: FairnessReport;
+  names?: DisplayNames;
+}) {
   if (fairness.rows.length === 0) return null;
 
   return (
@@ -103,7 +113,7 @@ export function FairnessMeter({ fairness }: { fairness: FairnessReport }) {
 
       <ul className="m-0 flex list-none flex-col gap-4 p-0">
         {fairness.rows.map((row) => (
-          <Row key={row.participantId} row={row} />
+          <Row key={row.participantId} row={row} names={names} />
         ))}
       </ul>
     </section>

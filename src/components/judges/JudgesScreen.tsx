@@ -25,7 +25,12 @@ import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { LockIcon } from "@/components/ui/PixelIcons";
 import { Avatar } from "@/components/ui/Sprite";
-import { CHARACTERS, PARTICIPANT_IDS, type ParticipantId } from "@/lib/characters";
+import {
+  CHARACTERS,
+  PARTICIPANT_IDS,
+  displayNameFor,
+  type ParticipantId,
+} from "@/lib/characters";
 
 /* -------------------------------------------------------------------------- */
 /* Shapes and defaults                                                         */
@@ -147,15 +152,27 @@ function SeatCard({
   disabled: boolean;
 }) {
   const character = CHARACTERS[seat.participantId];
+  // The tag is a live preview of who will be in the room, through the same
+  // resolver the town uses — an empty field falls back to the cast name. The
+  // seat itself is still identified by its sprite and its colour.
+  const label = displayNameFor(
+    { [seat.participantId]: seat.name },
+    seat.participantId,
+  );
   return (
     <section className="flex min-w-0 flex-col gap-3 border-[3px] border-ink bg-card p-4">
       <header className="flex items-center gap-3">
-        <Avatar id={seat.participantId} size={40} className="shrink-0" />
+        <Avatar
+          id={seat.participantId}
+          size={40}
+          className="shrink-0"
+          names={{ [seat.participantId]: seat.name }}
+        />
         <div
           className="disp px-2 py-1 text-[7px] text-white"
           style={{ background: character.color }}
         >
-          {character.name.toUpperCase()}
+          {label.toUpperCase()}
         </div>
       </header>
 
