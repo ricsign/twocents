@@ -1,0 +1,120 @@
+"use client";
+
+/**
+ * The right rail, and the accessible record of the negotiation.
+ *
+ * The room is decorative; this is where every spoken line lands, which is why
+ * it is a `log` with a polite live region rather than a decorative list. Rows
+ * are bottom-aligned so the newest line sits where the eye already is, and a
+ * turn that put an option on the table renders as a card instead of a quote —
+ * an offer is a thing, a rebuttal is a sentence.
+ */
+
+import { useEffect, useRef } from "react";
+import { CHARACTERS } from "@/lib/characters";
+import type { NegotiationTurn, Offer, TurnKind } from "@/lib/types";
+import type { ParticipantId } from "@/lib/characters";
+import { Avatar } from "@/components/ui/Sprite";
+
+/** The card's second line: the three terms a judge can read in a glance. */
+function terms(offer: Offer): string {
+  return [
+    `$${offer.perPerson.toLocaleString("en-US")} a person`,
+    offer.highlights[0],
+    offer.flightNote,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+/** Pushing back is the only turn that gets a colour; the rest stay muted. */
+function kindColour(kind: TurnKind): string {
+  return kind === "pushes back" ? "#B8432B" : "#7A5A3A";
+}
+
+export function Transcript({
+  turns,
+  thinkingSpeaker,
+}: {
+  turns: NegotiationTurn[];
+  thinkingSpeaker: ParticipantId | null;
+}) {
+  const endRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
+  }, [turns.length, thinkingSpeaker]);
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-5">
+      <div className="disp text-[10px] text-bark">TRANSCRIPT</div>
+
+      <div
+        role="log"
+        aria-live="polite"
+        aria-label="Negotiation transcript"
+        className="pixel-scroll flex min-h-0 flex-1 flex-col overflow-y-auto"
+      >
+        <div className="mt-auto flex flex-col gap-[22px]">
+          {turns.map((turn) => (
+            <TurnRow key={turn.id} turn={turn} />
+          ))}
+
+          {thinkingSpeaker ? (
+            <div className="flex items-center gap-2.5 text-bark">
+              <Avatar
+                id={thinkingSpeaker}
+                size={28}
+                style={{ opacity: 0.7 }}
+              />
+              <span className="blink text-[14px] font-bold">
+                {CHARACTERS[thinkingSpeaker].name}’s agent is thinking…
+              </span>
+            </div>
+          ) : null}
+
+          <div ref={endRef} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TurnRow({ turn }: { turn: NegotiationTurn }) {
+  const character = CHARACTERS[turn.speaker];
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-2.5">
+        <Avatar id={turn.speaker} size={28} />
+        <span className="head text-[18px] font-bold">
+          {character.name}’s agent
+        </span>
+        <span
+          className="text-[13px] font-bold"
+          style={{ color: kindColour(turn.kind) }}
+        >
+          {turn.kind}
+        </span>
+      </div>
+
+      {turn.offer ? (
+        <div className="ml-[38px] flex flex-col gap-1 border-[3px] border-ink bg-card px-3.5 py-3">
+          <div className="head text-[22px] font-bold">
+            {turn.offer.destination} · {turn.offer.dates}
+          </div>
+          <div className="text-[14px] font-semibold text-bark">
+            {terms(turn.offer)}
+          </div>
+          {/* The card is the readable form; the line itself is what was said,
+              and the accessible record has to carry it. */}
+          <span className="sr-only">{turn.text}</span>
+        </div>
+      ) : (
+        <p className="m-0 ml-[38px] text-[16px] leading-[1.45] font-semibold">
+          “{turn.text}”
+        </p>
+      )}
+    </div>
+  );
+}
