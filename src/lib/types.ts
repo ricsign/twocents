@@ -681,7 +681,15 @@ export const negotiationEventSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("done"),
     fairness: fairnessReportSchema,
-    reports: z.record(participantIdSchema, agentReportSchema),
+    /**
+     * Partial, not exhaustive, because the wire form is narrowed.
+     *
+     * The engine always fills all four — it wrote them and the session stores
+     * them — but `/api/negotiate` sends each frame through `eventForViewer`,
+     * and what reaches a browser is the one report belonging to the viewer.
+     * An exhaustive record would make the honest frame fail its own schema.
+     */
+    reports: z.partialRecord(participantIdSchema, agentReportSchema),
     usage: usageSchema,
     elapsedMs: z.number(),
   }),
@@ -729,7 +737,7 @@ export const demoSessionSchema = z.object({
   /** Null until the run finishes. */
   fairness: fairnessReportSchema.nullable(),
   /** Null until the run finishes; one private report per person. */
-  reports: z.record(participantIdSchema, agentReportSchema).nullable(),
+  reports: z.partialRecord(participantIdSchema, agentReportSchema).nullable(),
   usage: usageSchema,
   /** `Date.now()` at creation, used for the "agreed in" figure. */
   startedAt: z.number(),

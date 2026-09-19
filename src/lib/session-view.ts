@@ -13,14 +13,25 @@
  * output rather than a second, parallel idea of what "your view" means. One
  * function, one rule, one thing to audit.
  *
+ * The negotiation stream is the same boundary wearing a different hat, so its
+ * narrowing lives here too. `eventForViewer` is `sessionViewFor`'s sibling: the
+ * `done` frame carries all four `AgentReport`s — `secretsKept` spells out "$600
+ * budget" — and a `speak` frame carries the speaker's `privateReasonKept`. Both
+ * are the same leak the session route already closed, arriving one frame at a
+ * time instead of in one JSON body. Two functions, one file, one place a
+ * reviewer has to look to know everything a browser can learn.
+ *
  * IMPORTANT — this narrowing is for the HTTP boundary and nothing else.
  * `runNegotiation` and everything under `lib/negotiation/` legitimately take the
- * full `DemoSession`: the redaction guarantee is *built* on those agents holding
- * the real briefs, deriving a `PublicMandate` from each and scanning every
- * generated line against the real secrets. An engine starved of the briefs
- * cannot redact, cannot score fairness and cannot write a private report — it
- * would produce a demo that leaks by having nothing to protect. Do not "fix" the
- * engine by passing it a `SessionView`. Only the wire narrows.
+ * full `DemoSession` and legitimately *emit* the full picture: the redaction
+ * guarantee is *built* on those agents holding the real briefs, deriving a
+ * `PublicMandate` from each and scanning every generated line against the real
+ * secrets. An engine starved of the briefs cannot redact, cannot score fairness
+ * and cannot write a private report — it would produce a demo that leaks by
+ * having nothing to protect. Do not "fix" the engine by passing it a
+ * `SessionView`, and do not make it emit fewer reports: `/api/negotiate` still
+ * persists every one of them to the session, because each human fetches their
+ * own back through the narrowed session route. Only the wire narrows.
  *
  * Shared by server routes, server components and the client, so the three can
  * never disagree about what one person is allowed to know. No React, no I/O.
@@ -47,6 +58,7 @@ import {
   usageSchema,
   displayNamesOf,
   type DemoSession,
+  type NegotiationEvent,
 } from "@/lib/types";
 
 /** The person a view is built for when a caller does not say. The demo user. */
@@ -209,6 +221,49 @@ export function sessionViewFor(
 }
 
 /**
+ * Narrows one frame of the negotiation stream to one person.
+ *
+ * `sessionViewFor`'s sibling, and deliberately the same shape of promise: pure,
+ * total, and the only thing between `runNegotiation` and a browser. Two of the
+ * six frame types carry something private and both are handled by name; every
+ * other frame is returned by reference, so a `round`, `thinking`, `offer` or
+ * `agreed` event is provably the object the engine produced.
+ *
+ * - **`speak`** keeps `privateReasonKept` only for the person whose agent said
+ *   it. It names the real reason — "protecting a $600 ceiling" — and the room
+ *   is exactly who must not have it. The town already renders someone else's
+ *   line as "Reason kept private", so nothing visible changes; the number
+ *   simply stops being on the wire to begin with.
+ * - **`done`** keeps one `AgentReport`: the viewer's. The engine sends all four
+ *   and the route still writes all four to the session, because each human
+ *   fetches their own through `GET /api/session?viewer=`. What no longer
+ *   happens is one `curl -N` on the stream returning four `secretsKept` arrays.
+ *
+ * A viewer the run has no report for gets an empty map rather than a missing
+ * field, so the frame still parses as a `NegotiationEvent` on the way in.
+ */
+export function eventForViewer(
+  event: NegotiationEvent,
+  viewerId: ParticipantId,
+): NegotiationEvent {
+  switch (event.type) {
+    case "speak":
+      return event.speaker === viewerId ? event : stripPrivateReason(event);
+
+    case "done": {
+      const mine = event.reports[viewerId];
+      return { ...event, reports: mine ? { [viewerId]: mine } : {} };
+    }
+
+    default:
+      // round, thinking, offer, agreed: public by construction. Returned
+      // untouched so the narrowing cannot quietly reshape a frame it has no
+      // business editing.
+      return event;
+  }
+}
+
+/**
  * The name map, rebuilt from a view that has already crossed the wire.
  *
  * `sessionViewFor` resolved every `name` on the way out, so this is a gather
@@ -227,7 +282,8 @@ export function displayNamesFromView(view: SessionView): DisplayNames {
 /* Internals                                                                   */
 /* -------------------------------------------------------------------------- */
 
-type Turn = z.infer<typeof negotiationTurnSchema>;
+/** The two shapes that carry a private reason: a stored turn and a live frame. */
+type HasPrivateReason = { privateReasonKept?: string };
 
 /**
  * Drops the one field on a turn that is not public.
@@ -235,10 +291,14 @@ type Turn = z.infer<typeof negotiationTurnSchema>;
  * `privateReasonKept` records *why* an agent said what it said — "protecting a
  * $600 ceiling" — and is surfaced only to the human that agent works for. It
  * rides along in the session because the plan screen shows it back to its owner.
+ *
+ * Generic over the carrier because the stored `NegotiationTurn` and the live
+ * `speak` frame are the same secret in two envelopes; one function means the
+ * stream and the session route cannot drift on what "public" means.
  */
-function stripPrivateReason(turn: Turn): Turn {
-  if (turn.privateReasonKept === undefined) return turn;
-  const next = { ...turn };
+function stripPrivateReason<T extends HasPrivateReason>(carrier: T): T {
+  if (carrier.privateReasonKept === undefined) return carrier;
+  const next = { ...carrier };
   delete next.privateReasonKept;
   return next;
 }

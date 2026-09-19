@@ -5,7 +5,7 @@
  * screen only ever listens, and SSE survives a proxy that would silently eat a
  * websocket upgrade — which on a conference network is not a hypothetical.
  *
- * Two things this route owns that the engine deliberately does not:
+ * Three things this route owns that the engine deliberately does not:
  *
  * - **Pace.** The engine yields as fast as the model answers, which is either
  *   too fast to read or unevenly slow. The delay is applied here, between
@@ -14,11 +14,24 @@
  * - **Persistence.** The run's result is written back to the session store when
  *   it lands, so the plan screen can be opened directly, or reloaded, without
  *   rerunning the negotiation.
+ * - **Privacy.** Every frame exits through `eventForViewer`, the same boundary
+ *   narrowing `GET /api/session` uses, so `curl -N /api/negotiate` sees one
+ *   private report instead of four and one `privateReasonKept` instead of
+ *   twenty. The engine still emits everything and the store still keeps
+ *   everything — each human reads their own back through the session route.
+ *   Reads take `?viewer=`, POSTs carry `viewer` in the body, both default to
+ *   the demo user.
  */
 
 import { runNegotiation } from "@/lib/negotiation/engine";
 import { DEFAULT_SESSION_ID, getOrCreateDefault, getSession, updateSession } from "@/lib/session";
-import type { NegotiationEvent, NegotiationTurn } from "@/lib/types";
+import { DEFAULT_VIEWER, eventForViewer } from "@/lib/session-view";
+import {
+  participantIdSchema,
+  type NegotiationEvent,
+  type NegotiationTurn,
+  type ParticipantId,
+} from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -83,6 +96,8 @@ function parseSpeed(raw: unknown): number {
 
 interface RunParams {
   sessionId: string;
+  /** Whose stream this is. Every frame is narrowed to this person on the way out. */
+  viewer: ParticipantId;
   speed: number;
   roundCap?: number;
 }
@@ -117,7 +132,9 @@ function streamNegotiation(params: RunParams, signal: AbortSignal): Response {
         })) {
           if (signal.aborted) break;
 
-          send(JSON.stringify(event));
+          // Narrowed on the way out, full on the way to the store. The two
+          // lines below this one are the reason that order matters.
+          send(JSON.stringify(eventForViewer(event, params.viewer)));
 
           // Rebuilt here rather than read out of the engine: the route is what
           // owns the session write, and an event stream is the only thing the
@@ -178,6 +195,27 @@ function streamNegotiation(params: RunParams, signal: AbortSignal): Response {
 /* Handlers                                                                    */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Who this stream is for, or `null` if the caller named somebody who isn't here.
+ *
+ * Absent means the demo user, matching `/api/session`: the town screen only ever
+ * watches as Maya and should not have to say so. An unrecognised name is a typo
+ * rather than a guest, and the 400 below is better than quietly opening Maya's
+ * stream for a caller who asked to be someone else.
+ */
+function parseViewer(raw: unknown): ParticipantId | null {
+  if (raw === undefined || raw === null || raw === "") return DEFAULT_VIEWER;
+  const parsed = participantIdSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
+}
+
+function unknownViewer(raw: unknown): Response {
+  return Response.json(
+    { error: "invalid request", issues: [{ path: "viewer", message: `unknown viewer: ${String(raw)}` }] },
+    { status: 400 },
+  );
+}
+
 export async function POST(request: Request): Promise<Response> {
   let body: unknown = {};
   try {
@@ -187,9 +225,13 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const payload = (body ?? {}) as Record<string, unknown>;
+  const viewer = parseViewer(payload.viewer);
+  if (!viewer) return unknownViewer(payload.viewer);
+
   return streamNegotiation(
     {
       sessionId: typeof payload.sessionId === "string" ? payload.sessionId : DEFAULT_SESSION_ID,
+      viewer,
       speed: parseSpeed(payload.speed),
       roundCap: typeof payload.roundCap === "number" ? payload.roundCap : undefined,
     },
@@ -202,9 +244,14 @@ export async function GET(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const roundCap = Number(url.searchParams.get("roundCap"));
 
+  const raw = url.searchParams.get("viewer");
+  const viewer = parseViewer(raw ?? undefined);
+  if (!viewer) return unknownViewer(raw);
+
   return streamNegotiation(
     {
       sessionId: url.searchParams.get("sessionId") ?? DEFAULT_SESSION_ID,
+      viewer,
       speed: parseSpeed(url.searchParams.get("speed")),
       roundCap: Number.isFinite(roundCap) && roundCap > 0 ? roundCap : undefined,
     },
