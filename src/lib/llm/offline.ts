@@ -2,10 +2,19 @@
  * The canned provider: the demo's parachute.
  *
  * With no API key, a dead network or a model that will not answer in time,
- * this stands in and plays the scripted run — the same beats, the same copy the
- * design files were built around, in the same shapes. It is deterministic (a
- * judge who reruns gets the identical transcript) and it cannot throw: every
- * path, including a schema it has never seen, ends in a value.
+ * this stands in and plays the run — the same beats, the same shapes.
+ *
+ * It answers in one of two ways. For the seeded grad trip it replays the
+ * hand-written script below, word for word, because that run is what the design
+ * files show and what the demo is timed against. For any other session — above
+ * all the judges' round, where somebody types their own four names, their own
+ * wants and their own private ceilings — it generates the same five-beat arc
+ * over *that* room, via `lib/llm/scenario.ts`. Which of the two it is comes from
+ * `context.offline`, built by the negotiation engine.
+ *
+ * Both paths are deterministic (a judge who reruns gets the identical
+ * transcript) and neither can throw: every path, including a schema it has never
+ * seen and hints it cannot read, ends in a value.
  *
  * Server-only. No React, no DOM, no I/O.
  */
@@ -18,6 +27,15 @@ import type {
   CompletionResult,
   LLMProvider,
 } from "@/lib/llm/provider";
+import {
+  buildScenario,
+  scenarioPlan,
+  scenarioReport,
+  scenarioTurn,
+  type OfflineHints,
+  type OfflinePersonHint,
+  type Scenario,
+} from "@/lib/llm/scenario";
 
 /* -------------------------------------------------------------------------- */
 /* Small helpers                                                               */
@@ -462,11 +480,125 @@ function briefExtract(req: CompletionRequest): Record<string, unknown> {
 }
 
 /* -------------------------------------------------------------------------- */
-/* 6. Canned data and the schema walker                                        */
+/* 6. The generated path                                                       */
 /* -------------------------------------------------------------------------- */
 
-/** The seed object for a structured call, chosen by tag. */
+/**
+ * Reads the engine's offline hints out of `context`, defensively.
+ *
+ * Every field is checked rather than trusted: this provider is the thing that
+ * runs when everything else has failed, so it may not assume the shape of what
+ * it was handed. A hint block it cannot read is no hint block at all, and the
+ * scripted grad trip below answers instead.
+ */
+function readHints(ctx: Record<string, unknown> | undefined): OfflineHints | null {
+  const raw = ctx?.offline;
+  if (!isRecord(raw)) return null;
+
+  const rawPeople = Array.isArray(raw.people) ? raw.people : [];
+  const people: OfflinePersonHint[] = [];
+  for (const entry of rawPeople) {
+    if (!isRecord(entry)) continue;
+    const id = typeof entry.participantId === "string" ? entry.participantId : "";
+    if (!isParticipant(id)) continue;
+    const wants = Array.isArray(entry.wants)
+      ? entry.wants.filter((want): want is string => typeof want === "string" && want.trim().length > 0)
+      : [];
+    const want = typeof entry.want === "string" && entry.want.trim() ? entry.want.trim() : (wants[0] ?? "");
+    const ceiling =
+      typeof entry.ceiling === "number" && Number.isFinite(entry.ceiling) && entry.ceiling > 0
+        ? entry.ceiling
+        : null;
+    people.push({
+      participantId: id,
+      name: typeof entry.name === "string" && entry.name.trim() ? entry.name.trim() : id,
+      want: want || "Something everyone can live with",
+      wants: wants.length > 0 ? wants : [want || "Something everyone can live with"],
+      ceiling,
+    });
+  }
+  if (people.length === 0) return null;
+
+  const priceCapRaw = ctxNumber(raw, "priceCap");
+  const offerIds = Array.isArray(raw.offerIds)
+    ? raw.offerIds.filter((id): id is string => typeof id === "string")
+    : [];
+
+  return {
+    scenarioId: typeof raw.scenarioId === "string" && raw.scenarioId.trim() ? raw.scenarioId.trim() : null,
+    topic: ctxString(raw, "topic") || "the plan",
+    when: ctxString(raw, "when") || "Soon",
+    nights: ctxNumber(raw, "nights"),
+    priceCap:
+      priceCapRaw !== null && priceCapRaw > 0 ? priceCapRaw : Number.POSITIVE_INFINITY,
+    people,
+    offerIds,
+    spokenCount: Math.max(0, Math.trunc(ctxNumber(raw, "spokenCount") ?? 0)),
+    attempt: Math.max(0, Math.trunc(ctxNumber(raw, "attempt") ?? 0)),
+  };
+}
+
+/**
+ * The scenario for this request, or null when the scripted run should answer.
+ *
+ * `scenarioId` is the switch: the engine sets it for a session that came out of
+ * `createSeedSession`, and that run has to keep producing the exact strings
+ * below. Everything else is generated.
+ */
+function scenarioFor(req: CompletionRequest): { hints: OfflineHints; scenario: Scenario } | null {
+  const hints = readHints(req.context);
+  if (!hints || hints.scenarioId !== null) return null;
+  return { hints, scenario: buildScenario(hints) };
+}
+
+/** The generated answer for one request, or null when there is nothing to generate. */
+function generatedData(req: CompletionRequest): unknown {
+  let built: { hints: OfflineHints; scenario: Scenario } | null = null;
+  try {
+    built = scenarioFor(req);
+  } catch {
+    return null;
+  }
+  if (!built) return null;
+  const { hints, scenario } = built;
+
+  try {
+    switch (req.tag) {
+      case "negotiation-turn": {
+        const speaker = speakerOf(req);
+        const round = Math.max(1, Math.trunc(ctxNumber(req.context, "round") ?? 1));
+        const beat = scenarioTurn(hints, scenario, speaker);
+        return {
+          id: `turn-${beat.speaker}-${round}`,
+          round,
+          speaker: beat.speaker,
+          kind: beat.kind,
+          text: beat.text,
+          ...(beat.offer ? { offer: beat.offer } : {}),
+          ...(beat.privateReasonKept ? { privateReasonKept: beat.privateReasonKept } : {}),
+        };
+      }
+      case "final-plan":
+        return scenarioPlan(scenario);
+      case "agent-report":
+        return scenarioReport(scenario, speakerOf(req));
+      default:
+        return null;
+    }
+  } catch {
+    return null;
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* 7. Canned data and the schema walker                                        */
+/* -------------------------------------------------------------------------- */
+
+/** The seed object for a structured call: generated if it can be, scripted if not. */
 function cannedData(req: CompletionRequest): unknown {
+  const generated = generatedData(req);
+  if (generated !== null && generated !== undefined) return generated;
+
   switch (req.tag) {
     case "brief-reply": {
       const text = briefReply(req);
@@ -630,7 +762,7 @@ function fabricate(schema: unknown, seed: unknown): unknown {
 }
 
 /* -------------------------------------------------------------------------- */
-/* 7. The provider                                                             */
+/* 8. The provider                                                             */
 /* -------------------------------------------------------------------------- */
 
 /**
@@ -670,6 +802,15 @@ export class OfflineProvider implements LLMProvider {
 
   /** The spoken form of each tag, for callers that want prose rather than fields. */
   private line(req: CompletionRequest): string {
+    const generated = generatedData(req);
+    if (isRecord(generated)) {
+      if (typeof generated.text === "string" && generated.text.trim()) return generated.text;
+      if (typeof generated.summary === "string" && generated.summary.trim()) return generated.summary;
+      if (typeof generated.gotYou === "string") {
+        return `${String(generated.gotYou)} ${String(generated.tradedAway)} ${String(generated.why)}`;
+      }
+    }
+
     switch (req.tag) {
       case "brief-reply":
         return briefReply(req);

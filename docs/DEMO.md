@@ -8,9 +8,12 @@ minutes. Everything below is a click, not a slide.
 - [ ] `npm run dev`, open `http://localhost:3000`, leave it on `/`.
 - [ ] Decide on the key. With `ANTHROPIC_API_KEY` set the agents are live and
       the run takes 60–90 seconds of real model time. With it unset the run is
-      scripted, identical every time, and finishes in about two seconds of
-      engine time — which is what you want for a rehearsal and a safe fallback,
-      but the live run is the one that earns the "agreed in" figure.
+      offline: deterministic, identical every time, and finished in about two
+      seconds of engine time — which is what you want for a rehearsal and a safe
+      fallback, but the live run is the one that earns the "agreed in" figure.
+      Offline, the grad trip plays the scripted lines the mockups were built
+      around, and any *other* session — the judges' round included — is
+      generated from the briefs it was actually given.
 - [ ] Hit `/town` once and let a run finish, then press RESET. That warms the
       route, the fonts and the sprites so the first bubble on stage is instant.
 - [ ] Press RESET one last time so you go on stage with a briefed-but-
@@ -32,7 +35,7 @@ minutes. Everything below is a click, not a slide.
 | 1:30 | The Plan | SEE THE PLAN → `/plan`. Read the fairness meter: "Sam gave up the resort. Nobody was overruled — that is computed, not claimed." Then the private report: "$540 a head, $60 under your number. Nobody heard your number." Tap APPROVE. | One plan, a runner-up, four bars, and a note only Maya can see. |
 | 1:50 | The receipts | Point at the run-stats strip under the fairness meter. "Agreed in 1:52, against three weeks in the group chat. Twenty-odd calls on the small model, the plan and the four reports on the large one — the same run on one model costs about forty percent more." | Two numbers, both measured from the run they just watched. |
 | 2:00 | The flip | Back to `/personality`, drag Priya from easygoing to stubborn, then `/town` and RESET at 4x. | A different argument and a different plan, from one slider. |
-| 2:20 | Judges' round | JUDGES' ROUND on the town screen → `/judges`. Hand over the keyboard. Four names, four one-line wants, four private budgets — or just press START, it is prefilled with a dinner. | Their dinner, argued by four agents, in about forty seconds. |
+| 2:20 | Judges' round | JUDGES' ROUND on the town screen → `/judges`. Hand over the keyboard. Four names, four one-line wants, four private budgets — or just press START, it is prefilled with a dinner. Works with or without a key. | Their dinner, argued by four agents, in about forty seconds. |
 | 2:50 | The close | "Humans brief. Agents haggle. Humans approve. Nobody has the awkward conversation." | — |
 
 ## Notes on the beats
@@ -45,10 +48,26 @@ work for you. Do not explain it.
 **The flip has to be one slider.** Change exactly one thing and rerun. Two
 changes and a judge cannot tell which one mattered.
 
-**The judges' round wants a key.** Offline, the scripted provider replays the
-grad-trip lines whatever topic a judge typed, which reads as canned. If you are
-running without a key, keep the judges' round short — show the briefing form
-and the room filling, and land on the private report rather than the transcript.
+**The judges' round works without a key.** Offline the agents argue about the
+topic the judge actually typed: the scripted grad-trip lines are reserved for
+the seeded session, and anything else is generated from that room's own names,
+wants and private ceilings. Type "Dinner tonight" with no key and four agents
+argue about dinner — the person with the most room opens with the expensive
+place, the person with the tightest budget pushes back without ever saying why,
+somebody trades for the one thing they came for, and the plan lands under the
+lowest ceiling in the room.
+
+Two things to know before you lean on it. The generated room is a fallback, not
+the product: it picks between a handful of options per topic kind (a trip, a
+meal, a night out, or a generic version of anything else), so a judge who types
+something exotic gets the generic one arguing sensibly rather than a bespoke
+scenario. And the plan header prints "1 nights" for a dinner, because the offer
+card has a nights field and an evening does not. With a key, neither applies.
+
+What does not change offline is the part being judged: no generated line states
+anybody's ceiling — the prices the agents quote are chosen to sit clear of every
+number in the room before they are ever said — and the fairness meter is still
+computed from the real briefs, so it names whoever conceded.
 
 **RESET is total.** The button on the town screen and the one on the plan
 screen both replace the session object outright: plan, approvals, transcript
@@ -64,7 +83,8 @@ model layer falls back to a scripted run that produces the same events at the
 same cadence. You lose the live model calls and nothing else.
 
 If you want to guarantee that path rather than discover it, set
-`TWOCENTS_FORCE_OFFLINE=1` before the demo and the run is deterministic. Say so
+`TWOCENTS_FORCE_OFFLINE=1` before the demo and the run is deterministic — for
+the seeded trip *and* for whatever a judge types. Say so
 from the stage if the cost strip reads NOT BILLED — it says "offline fallback"
 for exactly this reason, and a demo that survives a dead network is a better
 story than one that pretends it was online.
