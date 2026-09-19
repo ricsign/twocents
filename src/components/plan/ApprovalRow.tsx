@@ -45,6 +45,9 @@ export function ApprovalRow({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           action: "approve",
+          // You approve as yourself: the route rejects any write aimed at
+          // another participant, so the two ids are deliberately the same one.
+          viewer: you,
           participantId: you,
           ...(sessionId ? { sessionId } : {}),
         }),

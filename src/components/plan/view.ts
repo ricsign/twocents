@@ -1,18 +1,20 @@
 /**
  * What the plan screen is allowed to know.
  *
- * The session carries all four briefs, all four ceilings and all four private
- * reports. Handing that object to the browser would put Sam's credit card and
- * Jordan's number in the page source of a screen whose entire promise is that
- * nobody hears anyone else's. So the server narrows it here first: the agreed
- * plan, the fairness rows (which are already public claims), your own report,
- * and who has approved. Nothing else crosses.
+ * The narrowing itself lives in `lib/session-view.ts` and is done once, for the
+ * whole app, at the HTTP boundary. This file is the plan screen's *shape* of
+ * that view: the agreed plan, the fairness rows, your own report and who has
+ * approved, flattened into the four props the screen renders. It makes no
+ * privacy decision of its own — `planViewFor` delegates to `sessionViewFor`, and
+ * `planViewFrom` reshapes a view that has already crossed the wire. Two ideas of
+ * "your view of the session" is one too many.
  *
  * Shared by the server page and the client screen, so the two can never
- * disagree about what "your" view of the plan is. No React, no I/O.
+ * disagree. No React, no I/O.
  */
 
 import { PARTICIPANT_IDS, type ParticipantId } from "@/lib/characters";
+import { sessionViewFor, type SessionView } from "@/lib/session-view";
 import type {
   AgentReport,
   DemoSession,
@@ -30,30 +32,41 @@ export interface PlanView {
 }
 
 /**
- * Narrows a session to one person's view, or null when the agents have not
+ * Reshapes an already-narrowed session view, or null when the agents have not
  * finished and there is nothing to show yet.
  *
- * Only your approval is read from the session. The other three are not sitting
- * at this laptop: with four devices their taps would arrive from theirs, and in
- * the demo the plan landing is that signal.
+ * Only your approval is read from the view. The other three are not sitting at
+ * this laptop: with four devices their taps would arrive from theirs, and in the
+ * demo the plan landing is that signal.
+ */
+export function planViewFrom(view: SessionView): PlanView | null {
+  const { plan, fairness, report } = view;
+  if (!plan || !fairness) return null;
+
+  const approvals = {} as Record<ParticipantId, boolean>;
+  for (const id of PARTICIPANT_IDS) {
+    approvals[id] = id === view.viewerId ? view.you.approved : true;
+  }
+
+  return {
+    sessionId: view.sessionId,
+    plan,
+    fairness,
+    report,
+    approvals,
+  };
+}
+
+/**
+ * Narrows a session to one person's plan view, server side.
+ *
+ * Goes through `sessionViewFor` rather than reaching into the session itself, so
+ * there is exactly one definition of what a person may see and the plan screen
+ * cannot quietly grow a wider one.
  */
 export function planViewFor(
   session: DemoSession,
   you: ParticipantId,
 ): PlanView | null {
-  const { plan, fairness, reports } = session;
-  if (!plan || !fairness || !reports) return null;
-
-  const approvals = {} as Record<ParticipantId, boolean>;
-  for (const id of PARTICIPANT_IDS) {
-    approvals[id] = id === you ? (session.participants[id]?.approved ?? false) : true;
-  }
-
-  return {
-    sessionId: session.id,
-    plan,
-    fairness,
-    report: reports[you] ?? null,
-    approvals,
-  };
+  return planViewFrom(sessionViewFor(session, you));
 }
