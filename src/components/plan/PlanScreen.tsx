@@ -23,8 +23,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { YOU } from "@/lib/characters";
-import { demoSessionSchema } from "@/lib/types";
-import { planViewFor, type PlanView } from "./view";
+import { sessionViewSchema } from "@/lib/session-view";
+import { planViewFrom, type PlanView } from "./view";
 import { AgentReportCard } from "./AgentReportCard";
 import { ApprovalRow } from "./ApprovalRow";
 import { FairnessMeter } from "./FairnessMeter";
@@ -35,12 +35,17 @@ const HEADLESS_SPEED = 8;
 
 type Status = "loading" | "negotiating" | "ready" | "error";
 
-/** The session, narrowed to your view. Null while the agents are still out. */
+/**
+ * Your view of the session. Null while the agents are still out.
+ *
+ * The route narrows before it answers — the response carries your brief and
+ * your report and nobody else's — so this is a reshaping, not a redaction.
+ */
 async function loadView(): Promise<PlanView | null> {
-  const res = await fetch("/api/session", { cache: "no-store" });
+  const res = await fetch(`/api/session?viewer=${YOU}`, { cache: "no-store" });
   if (!res.ok) return null;
-  const parsed = demoSessionSchema.safeParse((await res.json()) as unknown);
-  return parsed.success ? planViewFor(parsed.data, YOU) : null;
+  const parsed = sessionViewSchema.safeParse((await res.json()) as unknown);
+  return parsed.success ? planViewFrom(parsed.data) : null;
 }
 
 /** Runs the negotiation with nothing on screen, then resolves. */

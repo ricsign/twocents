@@ -1,10 +1,19 @@
 /**
- * Read and edit the demo session.
+ * Read and edit the demo session — as one person.
  *
- * Four actions, one of which is the judges' reset button. Every body is
- * validated with the same zod schemas that type the UI, because this route is
- * how a half-finished briefing becomes state the negotiation will argue from —
- * a malformed brief accepted here is a crash in the town, in front of a judge.
+ * Every response on this route is narrowed by `sessionViewFor` before it leaves
+ * the process. The session object itself carries all four real ceilings, all
+ * four private transcripts and all four private reports; the product's whole
+ * claim is that your agent knows your number and nobody else ever does, and a
+ * claim that holds only in the UI is not a claim. It holds here, at the wire.
+ *
+ * Reads take `?viewer=`; writes carry `viewer` in the body and may only touch
+ * that person's own participant. Briefing someone else's agent is not a thing.
+ *
+ * Every body is validated with the same zod schemas that type the UI, because
+ * this route is how a half-finished briefing becomes state the negotiation will
+ * argue from — a malformed brief accepted here is a crash in the town, in front
+ * of a judge.
  */
 
 import { z } from "zod";
@@ -16,10 +25,16 @@ import {
   updateSession,
 } from "@/lib/session";
 import {
+  DEFAULT_VIEWER,
+  sessionViewFor,
+  type SessionView,
+} from "@/lib/session-view";
+import {
   briefSchema,
   participantIdSchema,
   personalitySchema,
   type DemoSession,
+  type ParticipantId,
   type ParticipantState,
 } from "@/lib/types";
 
@@ -34,27 +49,34 @@ export const dynamic = "force-dynamic";
  * A discriminated union rather than four optional fields: an action is exactly
  * one thing, and the 400 a caller gets back should name the field it got wrong
  * rather than complaining about all four.
+ *
+ * `viewer` is optional on every action and defaults to the demo user, so the
+ * screens that only ever speak for Maya do not have to say so twice.
  */
 const requestSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("reset"),
     sessionId: z.string().optional(),
+    viewer: participantIdSchema.optional(),
   }),
   z.object({
     action: z.literal("updateBrief"),
     sessionId: z.string().optional(),
+    viewer: participantIdSchema.optional(),
     participantId: participantIdSchema,
     brief: briefSchema,
   }),
   z.object({
     action: z.literal("updatePersonality"),
     sessionId: z.string().optional(),
+    viewer: participantIdSchema.optional(),
     participantId: participantIdSchema,
     personality: personalitySchema,
   }),
   z.object({
     action: z.literal("approve"),
     sessionId: z.string().optional(),
+    viewer: participantIdSchema.optional(),
     participantId: participantIdSchema,
   }),
 ]);
@@ -68,10 +90,16 @@ function sessionFor(sessionId: string | undefined): DemoSession | undefined {
   return id === DEFAULT_SESSION_ID ? getOrCreateDefault() : getSession(id);
 }
 
+/** The single exit for session data. Nothing on this route responds any other way. */
+function viewResponse(session: DemoSession, viewer: ParticipantId): Response {
+  const view: SessionView = sessionViewFor(session, viewer);
+  return Response.json(view);
+}
+
 /** Replaces one participant's state without touching the other three. */
 function patchParticipant(
   session: DemoSession,
-  participantId: keyof DemoSession["participants"],
+  participantId: ParticipantId,
   patch: Partial<ParticipantState>,
 ): DemoSession | undefined {
   const existing = session.participants[participantId];
@@ -98,16 +126,44 @@ function badRequest(issues: z.core.$ZodIssue[]): Response {
   );
 }
 
+/**
+ * The one authorization rule this app has: you write your own row.
+ *
+ * A 403 rather than a silent no-op, because the only way a caller gets here is
+ * by asking for something the product does not offer, and a write that appears
+ * to succeed and did not is the worse failure.
+ */
+function forbidden(viewer: ParticipantId, target: ParticipantId): Response {
+  return Response.json(
+    {
+      error: "forbidden",
+      message: `${viewer} may only change their own participant, not ${target}`,
+    },
+    { status: 403 },
+  );
+}
+
 /* -------------------------------------------------------------------------- */
 /* Handlers                                                                    */
 /* -------------------------------------------------------------------------- */
 
-/** The whole session, as the plan and town screens read it on load. */
+/**
+ * The session, narrowed to `?viewer=` — your brief and report in full, everyone
+ * else as a `PublicMandate` and a name.
+ */
 export async function GET(request: Request): Promise<Response> {
   const url = new URL(request.url);
+
+  // An unknown viewer is a typo, not a guest: 400 rather than quietly handing
+  // back Maya's view of a session the caller asked about as someone else.
+  const viewer = participantIdSchema.safeParse(
+    url.searchParams.get("viewer") ?? DEFAULT_VIEWER,
+  );
+  if (!viewer.success) return badRequest(viewer.error.issues);
+
   const session = sessionFor(url.searchParams.get("sessionId") ?? undefined);
   if (!session) return Response.json({ error: "unknown session" }, { status: 404 });
-  return Response.json(session);
+  return viewResponse(session, viewer.data);
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -121,15 +177,20 @@ export async function POST(request: Request): Promise<Response> {
   const parsed = requestSchema.safeParse(raw);
   if (!parsed.success) return badRequest(parsed.error.issues);
   const body = parsed.data;
+  const viewer: ParticipantId = body.viewer ?? DEFAULT_VIEWER;
 
   if (body.action === "reset") {
     // Total by construction — a fresh seed object, not a diff — so nothing from
-    // the previous judge's run can survive into the next one.
-    return Response.json(resetSession(body.sessionId ?? DEFAULT_SESSION_ID));
+    // the previous judge's run can survive into the next one. Resetting is a
+    // room-wide act, so it is the one write not scoped to one participant.
+    return viewResponse(resetSession(body.sessionId ?? DEFAULT_SESSION_ID), viewer);
   }
 
   const session = sessionFor(body.sessionId);
   if (!session) return Response.json({ error: "unknown session" }, { status: 404 });
+
+  // Every remaining action edits one person, and that person is you.
+  if (body.participantId !== viewer) return forbidden(viewer, body.participantId);
 
   switch (body.action) {
     case "updateBrief": {
@@ -145,7 +206,7 @@ export async function POST(request: Request): Promise<Response> {
       }
       const next = patchParticipant(session, body.participantId, { brief: body.brief });
       return next
-        ? Response.json(next)
+        ? viewResponse(next, viewer)
         : Response.json({ error: "unknown participant" }, { status: 404 });
     }
 
@@ -154,14 +215,14 @@ export async function POST(request: Request): Promise<Response> {
         personality: body.personality,
       });
       return next
-        ? Response.json(next)
+        ? viewResponse(next, viewer)
         : Response.json({ error: "unknown participant" }, { status: 404 });
     }
 
     case "approve": {
       const next = patchParticipant(session, body.participantId, { approved: true });
       return next
-        ? Response.json(next)
+        ? viewResponse(next, viewer)
         : Response.json({ error: "unknown participant" }, { status: 404 });
     }
   }

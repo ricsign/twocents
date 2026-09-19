@@ -95,6 +95,8 @@ export function PersonalityScreen({
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         action: "updatePersonality",
+        // Writing your own row. The route refuses anything else.
+        viewer: participantId,
         participantId,
         personality,
       }),

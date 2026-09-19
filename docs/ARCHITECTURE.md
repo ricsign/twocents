@@ -15,7 +15,7 @@ src/
     api/
       brief/route.ts      streams the private briefing chat
       negotiate/route.ts  SSE stream of the negotiation
-      session/route.ts    read/reset the demo session
+      session/route.ts    read/reset the demo session, narrowed to one viewer
   components/
     ui/                   design-system primitives (TopBar, PixelButton, Sprite, icons)
     brief/ personality/ town/ plan/
@@ -32,6 +32,7 @@ src/
       redaction.ts        the secret guard
       fairness.ts         scoring
     session.ts            in-memory store
+    session-view.ts       the one HTTP narrowing: a session, as one person
 ```
 
 ## Two hard rules
@@ -42,6 +43,14 @@ src/
    only. `lib/negotiation/redaction.ts` then scans every generated public line
    and rejects any that leaks a private figure, re-rolling the line. This is
    the product; it is enforced in code, not left to the prompt.
+
+   The same rule holds at the wire. `lib/session-view.ts` is the only place a
+   `DemoSession` is narrowed for a human: `GET /api/session?viewer=` and every
+   POST response go through `sessionViewFor`, which hands you your own brief and
+   your own report and gives you the other three as a `PublicMandate` — the same
+   sanitized view their agents argued from. The engine still receives the whole
+   session, and must: redaction, fairness and the private reports are all built
+   on it holding the real briefs. Only the wire narrows.
 
 2. **The app builds and runs with no network at all.** Fonts are self-hosted
    (`src/app/fonts.ts`), sprites are local, and the model layer falls back to
