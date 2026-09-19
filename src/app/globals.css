@@ -1,0 +1,286 @@
+@import "tailwindcss";
+
+/* ------------------------------------------------------------------
+   twocents.ai design system
+   Tokens lifted verbatim from the HackMIT UI mockups (design/*.clean.html)
+   ------------------------------------------------------------------ */
+
+@theme {
+  /* Core palette */
+  --color-ink: #2b1e14;
+  --color-ink-soft: #5a4634;
+  --color-parchment: #f4e9d0;
+  --color-card: #fff9ec;
+  --color-paper: #ffffff;
+
+  /* Accents */
+  --color-gold: #f2b84b;
+  --color-gold-deep: #b07a1b;
+  --color-coral: #e2593f;
+  --color-rust: #b8432b;
+  --color-rust-deep: #8f3220;
+  --color-leaf: #5c9e4a;
+  --color-leaf-deep: #3d7a34;
+  --color-sky: #3b82c4;
+  --color-plum: #8b5cc7;
+
+  /* Muted text */
+  --color-bark: #7a5a3a;
+  --color-sand: #b9a98b;
+  --color-cream-dim: #e9dcc0;
+
+  /* Room / scenery */
+  --color-wood: #b5804a;
+  --color-wood-deep: #8a5a32;
+  --color-wall: #d9b98c;
+  --color-track: #e5d6b4;
+
+  /* Typography */
+  --font-body: var(--font-nunito), "Segoe UI", sans-serif;
+  --font-display: var(--font-press-start), var(--font-pixelify), monospace;
+  --font-head: var(--font-pixelify), var(--font-press-start), sans-serif;
+}
+
+/* ------------------------------------------------------------------ */
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--color-parchment);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  font-weight: 600;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--color-rust);
+}
+a:hover {
+  color: var(--color-rust-deep);
+}
+
+/* Font-family utilities matching the mockup class names */
+.disp {
+  font-family: var(--font-display);
+  letter-spacing: 0.02em;
+}
+.head {
+  font-family: var(--font-head);
+}
+
+/* Pixel-perfect image rendering for every sprite */
+.spr {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  background-repeat: no-repeat;
+  background-position: 0 0;
+}
+
+/* Hard 4px outline used on the briefing card in the mockup */
+.px-frame {
+  box-shadow:
+    0 -4px 0 0 var(--color-ink),
+    0 4px 0 0 var(--color-ink),
+    -4px 0 0 0 var(--color-ink),
+    4px 0 0 0 var(--color-ink);
+}
+
+/* The chunky offset drop-shadow on primary buttons */
+.px-shadow {
+  box-shadow: 6px 6px 0 0 var(--color-ink);
+}
+.px-shadow-sm {
+  box-shadow: 4px 4px 0 0 var(--color-ink);
+}
+
+/* Pressable pixel button: shadow collapses on click */
+.px-press {
+  transition:
+    transform 80ms steps(2),
+    box-shadow 80ms steps(2);
+}
+.px-press:active:not(:disabled) {
+  transform: translate(4px, 4px);
+  box-shadow: 2px 2px 0 0 var(--color-ink);
+}
+.px-press:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Fairness meter segment */
+.seg {
+  height: 14px;
+  border: 3px solid var(--color-ink);
+}
+
+/* ------------------------------------------------------------------
+   Animations
+   ------------------------------------------------------------------ */
+
+@keyframes bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+@keyframes bob-tall {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+@keyframes pop {
+  from {
+    transform: scale(0.94);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+/* Sprite sheets are 16x48 (three 16x16 frames stacked) drawn at 7x = 112x336 */
+@keyframes cyc {
+  from {
+    background-position-y: 0;
+  }
+  to {
+    background-position-y: -336px;
+  }
+}
+@keyframes walk-cyc {
+  from {
+    background-position-y: 0;
+  }
+  to {
+    background-position-y: -336px;
+  }
+}
+
+.bob {
+  animation: bob 1.6s ease-in-out infinite;
+}
+.bob-tall {
+  animation: bob-tall 1.6s ease-in-out infinite;
+}
+.blink {
+  animation: blink 1.2s ease-in-out infinite;
+}
+.blink-fast {
+  animation: blink 1s ease-in-out infinite;
+}
+.pop {
+  animation: pop 0.25s ease-out;
+}
+.talk {
+  animation: cyc 0.75s steps(3) infinite;
+}
+.walking {
+  animation: walk-cyc 0.45s steps(3) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bob,
+  .bob-tall,
+  .blink,
+  .blink-fast,
+  .talk,
+  .walking,
+  .pop {
+    animation: none !important;
+  }
+}
+
+/* ------------------------------------------------------------------
+   Form controls, styled as pixel hardware
+   ------------------------------------------------------------------ */
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 12px;
+  background: var(--color-track);
+  border: 3px solid var(--color-ink);
+  outline: none;
+  margin: 6px 0;
+  cursor: pointer;
+  box-sizing: content-box;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 28px;
+  height: 28px;
+  background: var(--color-coral);
+  border: 3px solid var(--color-ink);
+  box-sizing: border-box;
+}
+input[type="range"]::-moz-range-thumb {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--color-ink);
+  border-radius: 0;
+  background: var(--color-coral);
+  box-sizing: border-box;
+}
+input[type="range"]:focus-visible {
+  outline: 3px dashed var(--color-sky);
+  outline-offset: 6px;
+}
+
+input[type="text"],
+textarea {
+  border: 3px solid var(--color-ink);
+  background: var(--color-paper);
+  font-family: var(--font-body);
+  font-weight: 600;
+  color: var(--color-ink);
+  border-radius: 0;
+}
+input[type="text"]:focus-visible,
+textarea:focus-visible,
+button:focus-visible,
+a:focus-visible {
+  outline: 3px dashed var(--color-sky);
+  outline-offset: 3px;
+}
+
+button {
+  border-radius: 0;
+}
+
+/* Scrollbars that don't break the aesthetic */
+.pixel-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-bark) transparent;
+}
+.pixel-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.pixel-scroll::-webkit-scrollbar-thumb {
+  background: var(--color-bark);
+}
+.pixel-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
