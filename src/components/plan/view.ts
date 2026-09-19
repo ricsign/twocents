@@ -20,6 +20,7 @@ import type {
   DemoSession,
   FairnessReport,
   Plan,
+  Usage,
 } from "@/lib/types";
 
 export interface PlanView {
@@ -29,6 +30,8 @@ export interface PlanView {
   /** Yours alone. The other three never reach this browser. */
   report: AgentReport | null;
   approvals: Record<ParticipantId, boolean>;
+  /** Token and cost accounting for the run that produced this plan. */
+  usage: Usage;
 }
 
 /**
@@ -40,7 +43,7 @@ export interface PlanView {
  * demo the plan landing is that signal.
  */
 export function planViewFrom(view: SessionView): PlanView | null {
-  const { plan, fairness, report } = view;
+  const { plan, fairness, report, usage } = view;
   if (!plan || !fairness) return null;
 
   const approvals = {} as Record<ParticipantId, boolean>;
@@ -54,6 +57,7 @@ export function planViewFrom(view: SessionView): PlanView | null {
     fairness,
     report,
     approvals,
+    usage,
   };
 }
 

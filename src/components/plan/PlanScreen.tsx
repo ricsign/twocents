@@ -29,6 +29,7 @@ import { AgentReportCard } from "./AgentReportCard";
 import { ApprovalRow } from "./ApprovalRow";
 import { FairnessMeter } from "./FairnessMeter";
 import { PlanHeadline } from "./PlanHeadline";
+import { RunStats } from "./RunStats";
 
 /** Fast-forward for the headless run. `/api/negotiate` clamps speed at 8x. */
 const HEADLESS_SPEED = 8;
@@ -128,8 +129,13 @@ export function PlanScreen({
     <main className="grid min-h-0 flex-1 grid-cols-1 gap-10 px-4 pt-8 pb-10 sm:px-8 min-[1100px]:grid-cols-[minmax(0,1fr)_440px] min-[1100px]:gap-16 min-[1100px]:px-14 min-[1100px]:py-12">
       <div className="flex min-w-0 flex-col gap-9">
         <PlanHeadline plan={view.plan} />
-        <div className="mt-auto pt-2">
+        <div className="mt-auto flex flex-col gap-6 pt-2">
           <FairnessMeter fairness={view.fairness} />
+          <RunStats
+            usage={view.usage}
+            agreedInMs={view.plan.agreedInMs}
+            sessionId={view.sessionId}
+          />
         </div>
       </div>
 

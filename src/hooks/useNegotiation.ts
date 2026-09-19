@@ -304,10 +304,51 @@ export function useNegotiation(sessionId = "demo"): Negotiation {
     begin(speedRef.current);
   }, [begin]);
 
+  /**
+   * The judges' reset: clear the room *and* the server, then run it again.
+   *
+   * Restarting the stream alone would have left the previous run's plan,
+   * approvals, transcript and token tally sitting in the session store, so the
+   * plan screen after a "fresh" run would still have shown the old one. The
+   * POST replaces the session object outright — `resetSession` builds a new
+   * seed rather than diffing the old one — and only then does a new stream
+   * open, so the negotiation the judge watches is arguing from a
+   * briefed-but-unnegotiated session.
+   *
+   * The abort comes first so no frame from the outgoing run can write itself
+   * into the session the POST is about to replace. The whole thing is one
+   * in-process map write and a new fetch, which is well inside the one second
+   * a judge will wait.
+   */
   const reset = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+    timerRef.current = null;
+    queueRef.current = [];
+    pausedRef.current = false;
+    clockRef.current = 0;
+
     startedRef.current = true;
-    begin(speedRef.current);
-  }, [begin]);
+    setState(EMPTY);
+    setElapsedMs(0);
+    setStatus("idle");
+
+    void (async () => {
+      try {
+        await fetch("/api/session", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: "reset", sessionId }),
+        });
+      } catch {
+        // A reset that could not reach the server still deserves a fresh run:
+        // the stream below re-runs the negotiation either way, and the stale
+        // plan it leaves behind is a worse outcome than a retried fetch.
+      }
+      begin(speedRef.current);
+    })();
+  }, [begin, sessionId]);
 
   // The server keeps streaming through a pause; the queue is what holds the
   // room still, so pausing is "stop draining", not "stop listening".
