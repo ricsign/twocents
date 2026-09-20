@@ -549,6 +549,20 @@ export interface Scenario {
   keptWants: string[];
 }
 
+/**
+ * Stand-ins for a brief that stated nothing.
+ *
+ * A brief is empty until its human says something, and the seat in front of
+ * the screen starts that way by design. Interpolating the blank produced a
+ * private report whose second sentence opened with a full stop and a plan
+ * summary that read "Somewhere cheap, the coast, . $540 a person" — a
+ * rendering bug dressed up as an agent's own words. Each phrase below reads as
+ * a position the agent could plausibly hold, which is the same trade
+ * `NO_CONTESTED` and `NO_MINE` make in `components/personality/sampleLine.ts`.
+ */
+const NO_WANT = "the version that works for all of us";
+const NO_WHEN = "whenever suits everyone";
+
 /** Per-kind fallback ceiling, for a room where nobody named a number. */
 const DEFAULT_CEILING: Record<ScenarioKind, number> = {
   trip: 900,
@@ -557,17 +571,45 @@ const DEFAULT_CEILING: Record<ScenarioKind, number> = {
   outing: 80,
 };
 
-/** Sorted most room on money first; a missing ceiling reads as the most room. */
+/**
+ * Sorted most room on money first, with an unknown ceiling at the *bottom*.
+ *
+ * A seat that never named a number has not told the room it can spend, and the
+ * seat in front of the screen starts exactly there — empty until the human
+ * types something. Reading a missing ceiling as the most room therefore cast
+ * whoever wrote one sentence with no figure in it as the big spender: they
+ * became the `opener`, proposed the expensive option and then had their
+ * headline want taken off them as the price of the plan.
+ *
+ * Sorting it to the other end also settles a disagreement the codebase was
+ * carrying. `priceStanceFor(null, …)` in `lib/types.ts` reads a missing ceiling
+ * as the tight end of the scale — "must be cheap" for a frugal slider — so the
+ * public stance the other agents argue against and the role this module hands
+ * out now say the same thing about the same person.
+ */
 function byCeilingDesc(people: readonly OfflinePersonHint[]): OfflinePersonHint[] {
   const order = new Map(PARTICIPANT_IDS.map((id, index) => [id, index] as const));
   return [...people].sort((a, b) => {
-    const left = a.ceiling ?? Number.POSITIVE_INFINITY;
-    const right = b.ceiling ?? Number.POSITIVE_INFINITY;
+    const left = a.ceiling ?? Number.NEGATIVE_INFINITY;
+    const right = b.ceiling ?? Number.NEGATIVE_INFINITY;
     if (left !== right) return right - left;
     // Stable and explicit: two identical ceilings must not swap between runs,
     // and they fall back to the same roster order every other module uses.
     return (order.get(a.participantId) ?? 0) - (order.get(b.participantId) ?? 0);
   });
+}
+
+/**
+ * This person's headline want, in their own words, or a phrase that reads as a
+ * stance when they stated none.
+ *
+ * `wants[0]` and `want` are both plain strings off the brief and both are `""`
+ * on a seat nobody has briefed, so `wants[0] ?? want` — which is what every
+ * caller used to write — falls through to the second blank rather than to
+ * anything sayable. Total by construction: it never returns an empty string.
+ */
+function wantOf(person: OfflinePersonHint): string {
+  return squeeze(person.wants[0] ?? "") || squeeze(person.want) || NO_WANT;
 }
 
 /** Template whose tags best fit this person's words; ties go to the first. */
@@ -648,6 +690,12 @@ export function buildScenario(hints: OfflineHints): Scenario {
     agreedPrice + roundingUnit(agreedPrice),
   );
 
+  // Resolved once, here, rather than at each of the six places it is printed:
+  // the offer cards, the opening proposal, the plan summary and the opener's
+  // private report all read `scenario.when`, and a blank in any of them is the
+  // same bug rendered in a different font.
+  const when = squeeze(hints.when) || NO_WHEN;
+
   const premiumTemplate = pickTemplate(copy.premium, opener);
   const agreedTemplate = pickTemplate(copy.budget, holdout);
 
@@ -661,7 +709,7 @@ export function buildScenario(hints: OfflineHints): Scenario {
    *
    * Enough of each person's wants to clear the fairness threshold, and for the
    * opener, everything *except* their headline want — that one is the price of
-   * the plan, the same shape the seeded run has where Sam loses the resort and
+   * the plan, the same shape the seeded run has where Will loses the resort and
    * keeps the rest. Six at most, because this list is printed as ticks on the
    * plan screen and a longer one stops reading as a plan.
    */
@@ -714,7 +762,7 @@ export function buildScenario(hints: OfflineHints): Scenario {
     template: premiumTemplate,
     price: premiumPrice,
     highlights: premiumHighlights,
-    when: hints.when,
+    when,
     nights,
     proposedBy: opener.participantId,
   });
@@ -724,7 +772,7 @@ export function buildScenario(hints: OfflineHints): Scenario {
     template: agreedTemplate,
     price: agreedPrice,
     highlights: keptWants,
-    when: hints.when,
+    when,
     nights,
     proposedBy: holdout.participantId,
   });
@@ -739,7 +787,7 @@ export function buildScenario(hints: OfflineHints): Scenario {
     agreedTemplate,
     premiumPrice,
     agreedPrice,
-    when: hints.when,
+    when,
     keptWants,
   };
 }
@@ -1079,9 +1127,9 @@ export function scenarioReport(
     return {
       ...base,
       gotYou: squeeze(`${label}, ${scenario.when}, at ${price} ${unit} — and three other people who’ll actually turn up.`),
-      tradedAway: squeeze(`${capitalize(lower(opener.wants[0] ?? opener.want))}. That’s the one you lose here, and you should hear it from me rather than read it off the plan.`),
+      tradedAway: squeeze(`${capitalize(lower(wantOf(opener)))}. That’s the one you lose here, and you should hear it from me rather than read it off the plan.`),
       why: squeeze(
-        `${scenario.premiumTemplate.label} was never going to clear everyone at ${money(scenario.premiumPrice)} ${unit}. I held it into the second round, then traded it for ${lower(trader.wants[0] ?? trader.want)} and a price nobody had to push back on.`,
+        `${scenario.premiumTemplate.label} was never going to clear everyone at ${money(scenario.premiumPrice)} ${unit}. I held it into the second round, then traded it for ${lower(wantOf(trader))} and a price nobody had to push back on.`,
       ),
     };
   }
@@ -1096,7 +1144,7 @@ export function scenarioReport(
       gotYou: squeeze(`${price} ${unit}${under}. ${scenario.keptWants[0] ?? label}, and nothing you said you couldn’t do.`),
       tradedAway: squeeze(`${opener.name} wanted ${lower(scenario.premiumTemplate.label)}; you get ${lower(label)} instead. That’s the only thing that moved.`),
       why: squeeze(
-        `${trader.name}’s agent wouldn’t budge on ${lower(trader.wants[0] ?? trader.want)}, so I let ${opener.name}’s version go rather than your money. Out there I only ever said it was over what works for us. Nobody heard your number.`,
+        `${trader.name}’s agent wouldn’t budge on ${lower(wantOf(trader))}, so I let ${opener.name}’s version go rather than your money. Out there I only ever said it was over what works for us. Nobody heard your number.`,
       ),
     };
   }
@@ -1104,7 +1152,7 @@ export function scenarioReport(
   if (speaker === trader.participantId) {
     return {
       ...base,
-      gotYou: squeeze(`${capitalize(lower(trader.wants[0] ?? trader.want))}, in writing, at ${price} ${unit}.`),
+      gotYou: squeeze(`${capitalize(lower(wantOf(trader)))}, in writing, at ${price} ${unit}.`),
       tradedAway: squeeze(`${capitalize(lower(scenario.premiumTemplate.label))}. You’d have taken it; other people at the table couldn’t.`),
       why: squeeze(
         `${opener.name}’s agent traded the expensive version to keep the one thing you said you’d be annoyed to lose, so I spent every turn I had holding that and let the rest go.`,
@@ -1114,7 +1162,7 @@ export function scenarioReport(
 
   return {
     ...base,
-    gotYou: squeeze(`${capitalize(lower(backer.wants[0] ?? backer.want))}, at ${price} ${unit}. Everything you actually asked for.`),
+    gotYou: squeeze(`${capitalize(lower(wantOf(backer)))}, at ${price} ${unit}. Everything you actually asked for.`),
     tradedAway: squeeze(`Nothing. You were the cheapest person in the room to satisfy and it cost you no ground.`),
     why: squeeze(
       `${label} cleared what you wanted on its own, so I spent my turns backing ${holdout.name}’s side instead of pushing for you.`,

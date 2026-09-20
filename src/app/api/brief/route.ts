@@ -6,6 +6,10 @@
  * structured `Brief` from the whole transcript so the "YOUR AGENT KNOWS" panel
  * can fill itself in as the conversation goes.
  *
+ * The turn is then stored on the session, so the town argues from what this
+ * human actually said and a reload comes back to the conversation they were
+ * having rather than to the seed.
+ *
  * Nothing here is public. This is the one place a real budget is allowed to
  * exist in plain text; `lib/negotiation/redaction.ts` is what keeps it out of
  * the town.
@@ -29,10 +33,11 @@ import {
   participantIdSchema,
   secretsFromBrief,
   type Brief,
+  type BriefMessage,
 } from "@/lib/types";
 import { displayNameFor } from "@/lib/characters";
 import { roomFromRequest, resolveSession } from "@/lib/room/identity";
-import { updateSession } from "@/lib/session";
+import { applyBrief } from "@/lib/session-writes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -200,46 +205,48 @@ export async function POST(request: Request): Promise<NextResponse> {
     briefSchema,
   );
 
-  const answer = reply.value.trim();
-
   // The transcript is ours, not the model's: it is the literal chat, and a
-  // model that paraphrases it would quietly rewrite what the human said. The
-  // agent's own reply is appended here rather than only in the browser, so the
-  // saved conversation is the whole conversation and a reload does not lose
-  // the last thing the agent said.
-  const brief: Brief = {
+  // model that paraphrases it would quietly rewrite what the human said.
+  // `said` stops at the human's line on purpose: the kept-private badge is
+  // derived from it, and it is about what the human just told their agent.
+  const said: Brief = {
     ...extracted.value,
     participantId,
-    rawTranscript: [...messages, { role: "agent", text: answer }],
+    rawTranscript: messages,
   };
 
-  // Saved before answering. A write that fails leaves the browser holding the
-  // only copy of this turn, which is exactly the bug this replaced, so it is
-  // logged rather than swallowed — but it still must not fail the request:
-  // the person is mid-sentence with their agent.
-  const existing = session.participants[participantId];
-  if (!existing) {
-    return NextResponse.json({ error: "No such seat in this session." }, { status: 404 });
-  }
+  // Derived before the agent's own line is appended, because the badge is
+  // about what the human just said, not about what the agent answered.
+  const keptPrivate = keptPrivateLabel(lastHuman, said);
+  const text = reply.value.trim();
+  const answer: BriefMessage = {
+    role: "agent",
+    text,
+    ...(keptPrivate ? { keptPrivate } : {}),
+  };
 
-  const saved = updateSession(session.id, {
-    participants: {
-      ...session.participants,
-      // `draft` is dropped here and only here. It says "we read this off a
-      // group chat, correct it" — and the person just did, so the caveat has
-      // served its purpose and would otherwise sit on the screen telling them
-      // to fix something they already fixed.
-      [participantId]: { ...existing, brief, draft: undefined },
-    },
-  });
-  if (!saved) {
-    console.warn(`[brief] could not save ${participantId}'s turn to ${session.id}`);
-  }
+  // The agent's reply is part of the conversation, so it is part of what gets
+  // stored: a transcript that stopped at the human's line would come back from
+  // a reload missing every answer, including the one that promised to sit on
+  // the number.
+  const brief: Brief = { ...said, rawTranscript: [...messages, answer] };
+
+  // Persisted through the same write the session route uses, so a turn of the
+  // briefing chat invalidates a finished run exactly the way an explicit
+  // `updateBrief` does. A plan argued from a brief this turn just changed is
+  // not a plan for this room any more.
+  //
+  // The second argument is where a photo-seeded draft dies, and this is the
+  // only place it does. `draft` means "we read this off your group chat, check
+  // it" — and the person has just spoken to their own agent, so the caveat has
+  // done its job. Leaving it would sit on their screen telling them to correct
+  // something they have already corrected.
+  applyBrief(session, participantId, brief, { draft: undefined });
 
   const payload: BriefTurnResponse = {
-    reply: answer,
+    reply: text,
     brief,
-    keptPrivate: keptPrivateLabel(lastHuman, brief),
+    keptPrivate,
   };
 
   return NextResponse.json(payload);

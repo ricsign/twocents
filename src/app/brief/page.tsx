@@ -2,10 +2,12 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { TopBar } from "@/components/ui/TopBar";
 import { BriefScreen } from "@/components/brief/BriefScreen";
-import { chatMessagesFrom } from "@/components/brief/seed";
+import { chatMessagesFrom } from "@/components/brief/chatMessages";
 import { PARTICIPANT_IDS, type ParticipantId } from "@/lib/characters";
+import { hasBriefed } from "@/lib/flow";
 import { currentRoom, resolveSession } from "@/lib/room/identity";
-import { displayNamesOf, hasBriefed, type DemoSession } from "@/lib/types";
+import { SAMPLE_BRIEF } from "@/lib/seed";
+import { displayNamesOf, type DemoSession } from "@/lib/types";
 
 export const metadata: Metadata = {
   title: "Brief your agent — twocents.ai",
@@ -16,20 +18,25 @@ export const metadata: Metadata = {
 /** The session is per-process and the judges' round rewrites the names in it. */
 export const dynamic = "force-dynamic";
 
-function briefedIn(session: DemoSession, seat: ParticipantId): ParticipantId[] {
-  return PARTICIPANT_IDS.filter(
-    (id) => id !== seat && hasBriefed(session.participants[id]?.brief),
-  );
+/**
+ * Who has already talked to their agent, derived rather than listed.
+ *
+ * A hardcoded roster was right exactly once, at time zero. It said the same
+ * three names after the human had briefed their own agent, and it would say
+ * them in a judges' round where all four seats were filled at the same moment.
+ */
+function briefedIn(session: DemoSession): ParticipantId[] {
+  return PARTICIPANT_IDS.filter((id) => hasBriefed(session.participants[id].brief));
 }
 
 /**
- * Step 1: your agent, asking you what you want.
+ * Step 1. Opens on whatever this person has already told their agent, which on
+ * a fresh session is nothing: one question, an empty panel, and the sample
+ * brief a demo can reach for instead of typing.
  *
- * Everything on screen comes from the session, so the conversation, the panel
- * beside it and the roster underneath all survive a reload, a navigation to
- * step 2 and back, and a restarted server. On a fresh session the transcript is
- * empty and `chatMessagesFrom` supplies the agent's opening question; the
- * scripted mid-conversation open is `TWOCENTS_SEED_BRIEF_CHAT=1`.
+ * In a room it opens on whatever the group chat said they wanted, with the
+ * caveat that we read it rather than heard it — and the first thing they type
+ * replaces the guess and clears the caveat.
  */
 export default async function BriefPage() {
   const { sessionId, seat } = await currentRoom();
@@ -37,6 +44,7 @@ export default async function BriefPage() {
   // A room that is gone is a dead link, not an empty room: minting one here
   // would answer a stale join URL with four strangers.
   if (!session) notFound();
+
   const you = session.participants[seat];
   if (!you) notFound();
 
@@ -46,9 +54,10 @@ export default async function BriefPage() {
       <BriefScreen
         participantId={seat}
         sessionId={sessionId}
-        briefed={briefedIn(session, seat)}
+        briefed={briefedIn(session)}
         initialMessages={chatMessagesFrom(you.brief.rawTranscript)}
         initialBrief={you.brief}
+        sampleBrief={SAMPLE_BRIEF}
         names={displayNamesOf(session)}
       />
     </div>

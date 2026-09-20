@@ -4,18 +4,28 @@
  * An agent that can invent "Tokyo, 6 nights, $700 a person" is negotiating
  * about nothing, and a judge who knows what a flight to Tokyo costs can see it
  * from the back of the room. So every offer that hits the table is checked
- * against the live web before anyone argues with it, and the verdict goes into
- * the transcript the other agents read — which is what turns it from a garnish
- * into part of the negotiation, since "that price isn't real" is a thing an
- * agent can now push back with.
+ * against the live web, and the verdict goes into the transcript the other
+ * agents read — which is what turns it from a garnish into part of the
+ * negotiation, since "that price isn't real" is a thing an agent can now push
+ * back with.
  *
  * Two properties carried over from the rest of the engine:
  *
- * - **It cannot stall the room.** The check is one call with its own deadline,
- *   already inherited from the provider, and a failure returns canned facts
- *   rather than propagating.
+ * - **It cannot stall the room.** The engine starts this call when the offer
+ *   is drafted and yields the offer without waiting for it; the verdict
+ *   arrives on the card as an `offer-checked` frame, and the outstanding
+ *   checks are joined once at the end of the round, before anybody converges
+ *   on anything. The deadline below bounds that join, and a failure returns
+ *   canned facts rather than propagating.
  * - **It says nothing private.** It sees an `Offer`, which is public by
  *   construction — it was just spoken aloud — and never a `Brief`.
+ *
+ * One rule earns its length in the prompt below: an option the desk could not
+ * price is bookable. Agents describe options the way people do — "the beach
+ * resort", no departure city — so a desk that answered "not bookable, cannot
+ * verify" flagged nearly everything, and rule 7 of the public prompt then sent
+ * every agent after the same missing link. The room spent its rounds asking
+ * for paperwork instead of planning a trip. Not knowing is not evidence.
  *
  * Server-only. No React, no DOM.
  */
@@ -23,8 +33,37 @@
 import type { CompletionRequest } from "@/lib/llm/provider";
 import type { NegotiationSourced, Offer, OfferFeasibility } from "@/lib/types";
 
-/** How many searches one offer is worth. Two: a flight price and a bed price. */
-const MAX_SEARCHES_PER_OFFER = 2;
+/**
+ * How many searches one offer is worth.
+ *
+ * One, not two. The desk was given two — a flight price and a bed price — but
+ * that is not the question it is actually asked: rule 2 below only lets it
+ * answer "not bookable" when the price is off by roughly a third, and rule 3
+ * tells it to leave an option it could not price bookable. An all-in figure
+ * for a destination and a length of stay settles both of those, and a second
+ * search buys precision on `realisticPerPerson`, a field the desk is already
+ * allowed to return null. Each search is a server-side round trip of seconds
+ * that the room used to sit through, so the second one was the most expensive
+ * nicety in the product.
+ */
+const MAX_SEARCHES_PER_OFFER = 1;
+
+/**
+ * How long one check may take before the room stops caring.
+ *
+ * Its own ceiling rather than the shared `llmTimeoutMs()` (20s), which is
+ * sized for a two-sentence turn somebody is waiting on. This call is not
+ * waited on any more — the engine starts it when the offer is drafted and
+ * joins the outstanding checks once, at the end of the round — but the join is
+ * still a wall the whole run hits, and 20s of it is 20s the plan screen does
+ * not appear.
+ *
+ * Ten seconds is one search plus the emit with room to spare, and the penalty
+ * for missing it is `UNCHECKED`, which the transcript already renders honestly
+ * as "Not checked against live prices." A verdict that arrives after the room
+ * has moved on is worth less than the time it cost to wait for it.
+ */
+const CHECK_TIMEOUT_MS = 10_000;
 
 /**
  * The verdict is four short fields, but this ceiling is not sized for the
@@ -70,9 +109,10 @@ const SYSTEM = [
   "",
   "Rules:",
   "- Search for the real cost of flights and lodging for that destination and those dates. Use what you find, not what you remember.",
-  "- `bookable` is false only when the price is clearly out of reach — off by roughly a third or more, or the dates do not work at all. A price in the right neighbourhood is bookable.",
+  "- `bookable` is false ONLY when your search established that the price is clearly out of reach — off by roughly a third or more, or the dates do not work at all.",
+  "- If you could not establish a price, `bookable` is TRUE. Not knowing is not evidence. An option described loosely — \"the beach resort\", no departure city — is an option you cannot price, so say what it would plausibly cost and leave it bookable. Marking it false turns the table into an argument about missing paperwork instead of about the trip.",
   "- `realisticPerPerson` is the all-in per-person figure your search supports, or null if the search did not establish one.",
-  "- `note` is ONE short sentence, written to be read aloud at the table: what it really costs, or what makes it work. No sources in the sentence, no hedging, no preamble.",
+  "- `note` is ONE short sentence, written to be read aloud at the table: what it really costs, or what makes it work. When you could not price it, say what it would plausibly run to. No sources in the sentence, no hedging, no preamble, and never ask for more detail — nobody at that table can give you any.",
   "- `sources` is the bare host names you used, like \"kayak.com\". Three at most.",
 ].join("\n");
 
@@ -83,15 +123,19 @@ const SYSTEM = [
  * never come apart: this string is only ever constructed next to the pages
  * that back it, and it returns nothing when there are none. The phrasing is
  * fixed for the same reason — "a quick web search shows" is a claim about what
- * the product did, so the product says it, not a model improvising.
+ * the product did, so the product says it, not a model improvising. The note
+ * keeps its own capitalisation, because the product does not know whether the
+ * word it starts with is a proper noun.
  */
 export function sourcedFrom(check: OfferFeasibility | undefined): NegotiationSourced | null {
   if (!check || check.links.length === 0) return null;
   const note = check.note.trim();
   if (!note) return null;
-  const sentence = `${note.charAt(0).toLowerCase()}${note.slice(1)}`;
+  // Joined with a colon rather than folded into the sentence. Lowercasing the
+  // first character read fine until the desk led with a proper noun, and then
+  // the transcript said "a quick web search shows march is peak season".
   return {
-    note: `A quick web search shows ${sentence}`,
+    note: `A quick web search shows: ${note}`,
     // Three is what fits on a transcript row; the offer card keeps the rest.
     links: check.links.slice(0, 3),
   };
@@ -117,6 +161,7 @@ export function buildFeasibilityRequest(offer: Offer): CompletionRequest {
     messages: [{ role: "user", content: user }],
     maxTokens: CHECK_MAX_TOKENS,
     webSearch: { maxUses: MAX_SEARCHES_PER_OFFER },
+    timeoutMs: CHECK_TIMEOUT_MS,
     context: {
       destination: offer.destination,
       perPerson: offer.perPerson,

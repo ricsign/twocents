@@ -21,6 +21,8 @@
  *   everything — each human reads their own back through the session route.
  *   Reads take `?viewer=`, POSTs carry `viewer` in the body, both default to
  *   the demo user.
+ * - **Exclusivity.** One negotiation per session at a time; see the lease
+ *   below.
  */
 
 import { runNegotiation } from "@/lib/negotiation/engine";
@@ -104,7 +106,17 @@ const BEAT_WEIGHT: Record<NegotiationEvent["type"], number> = {
   thinking: 0.4,
   speak: 1,
   offer: 0.35,
-  agreed: 0.5,
+  // Zero: this frame fills in a card that is already on screen rather than
+  // drawing a new one, and it arrives whenever the desk answers. Holding the
+  // engine at it would pay back the wait that making the check non-blocking
+  // just removed.
+  "offer-checked": 0,
+  // Zero, deliberately. The delay is applied *after* a frame is sent, so this
+  // one no longer paces anything a person watches — it only holds the engine
+  // at the yield, which is where it starts writing the plan up. `agreed` now
+  // fires the moment the room settles, and the point of that is not to sit on
+  // the work that follows it.
+  agreed: 0,
   done: 0,
 };
 
@@ -131,6 +143,61 @@ function parseSpeed(raw: unknown): number {
 }
 
 /* -------------------------------------------------------------------------- */
+/* One run at a time, per session                                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Sessions with a negotiation streaming into them right now.
+ *
+ * Two screens each decide on their own that the room needs arguing out.
+ * `/plan` starts a headless run when it is opened cold, and `/town`
+ * auto-starts one whenever the session it renders has no plan — so tapping
+ * the step-3 pip while the plan screen is still draining opened two. Both
+ * write to the same session as they land, independently, and the store could
+ * end up holding run B's `plan` beside run A's `fairness` and `reports`: a
+ * fairness meter scoring a plan nobody in that transcript agreed to.
+ *
+ * **The second caller gets 409, not a copy of the first stream.** Teeing would
+ * mean one run answering to two paces, two speeds and two aborts, for a
+ * benefit neither caller needs: the run already in flight is writing the exact
+ * outcome both of them are waiting for, and both clients can read it back out
+ * of the session when it lands. So the refusal is the useful answer, and
+ * `PlanScreen` and `useNegotiation` both treat it as "somebody else is getting
+ * this for us" rather than as an error.
+ *
+ * **A lease, not a flag.** `releaseRun` runs in a `finally` that covers a clean
+ * end, a thrown encoder, an aborted request and a client that hung up. The
+ * lease is the answer to whatever escapes that — a killed process, a bug in
+ * the release path — because a session that can never negotiate again is a
+ * worse failure on stage than two runs racing once. An entry older than the
+ * lease is treated as abandoned and taken over.
+ *
+ * Module state rather than `globalThis`: a dev-server hot reload dropping this
+ * map can at worst allow one duplicate run, while a stale entry surviving one
+ * would block the session for the length of the lease. Losing it is the safe
+ * direction.
+ */
+const inFlight = new Map<string, { token: symbol; startedAt: number }>();
+
+/** Longer than any run the round cap allows, short enough to recover on stage. */
+const RUN_LEASE_MS = 180_000;
+
+/** The lease on this session, or null while somebody else holds a live one. */
+function claimRun(sessionId: string): symbol | null {
+  const held = inFlight.get(sessionId);
+  if (held && Date.now() - held.startedAt < RUN_LEASE_MS) return null;
+
+  const token = Symbol(sessionId);
+  inFlight.set(sessionId, { token, startedAt: Date.now() });
+  return token;
+}
+
+/** Releases our own lease only, so a takeover survives the run it replaced. */
+function releaseRun(sessionId: string, token: symbol): void {
+  if (inFlight.get(sessionId)?.token === token) inFlight.delete(sessionId);
+}
+
+/* -------------------------------------------------------------------------- */
 /* The stream                                                                  */
 /* -------------------------------------------------------------------------- */
 
@@ -149,17 +216,46 @@ function streamNegotiation(params: RunParams, signal: AbortSignal): Response {
     return Response.json({ error: "unknown session", sessionId: params.sessionId }, { status: 404 });
   }
 
+  // The lease first, so nothing below runs twice. In a room this is the second
+  // line of defence rather than the first — the town screen only opens the
+  // stream on the host's browser — but it is the one that actually holds,
+  // because it is on this side of the wire and a client gate is a courtesy.
+  const token = claimRun(session.id);
+  if (!token) {
+    return Response.json(
+      { error: "a negotiation is already running for this session", sessionId: session.id },
+      { status: 409, headers: { "Retry-After": "1" } },
+    );
+  }
+
   // The room has begun. This is the whole coordination primitive for four
   // phones: the host opens the stream, this lands in the session, and the
   // other three see it on their next poll of `/api/session` and follow to the
   // town. No websocket, no broadcast, nothing to keep in sync — one timestamp
   // that only ever goes from null to a number.
+  //
+  // Distinct from the lease above, and both are needed: a lease says "somebody
+  // is running this right now" and is released the moment they stop, while
+  // this says "this room has started" and never goes back. Three phones
+  // waiting in the lobby need the second question answered, not the first.
   if (session.runStartedAt === null) {
     updateSession(session.id, { runStartedAt: Date.now() });
   }
 
   const encoder = new TextEncoder();
   const turns: NegotiationTurn[] = [];
+
+  // Released on abort as well as on completion.
+  //
+  // The `finally` at the end of `start` covers a run that finishes, throws or
+  // notices `signal.aborted` between frames. It does not cover a client that
+  // navigates away while the generator is suspended inside a model call: the
+  // stream is dropped, `start` never resumes, and the lease sat there for its
+  // full 180 seconds. The plan screen then POSTed, got 409, and polled a
+  // session nobody was writing — the town's run was gone and its lease was
+  // all that survived it. Releasing here as well makes the lease a property
+  // of the request rather than of the code path that ends it.
+  signal.addEventListener("abort", () => releaseRun(session.id, token), { once: true });
 
   const body = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -194,15 +290,48 @@ function streamNegotiation(params: RunParams, signal: AbortSignal): Response {
               kind: event.kind,
               text: event.text,
               ...(event.privateReasonKept ? { privateReasonKept: event.privateReasonKept } : {}),
-              // Carried so a transcript read back from the session still shows
-              // the search behind a line, and the links it opened.
-              ...(event.sourced ? { sourced: event.sourced } : {}),
             });
+          }
+          // An offer frame always follows its speaker's `speak` frame, so it
+          // hangs on that turn — the same rule the town's reducer applies, so
+          // a transcript read back out of the session renders the one card the
+          // live run drew rather than a bare quote.
+          if (event.type === "offer") {
+            const offer = event.offer;
+            for (let i = turns.length - 1; i >= 0; i -= 1) {
+              const turn = turns[i];
+              if (turn && turn.speaker === event.speaker && !turn.offer) {
+                turns[i] = { ...turn, offer };
+                break;
+              }
+            }
+          }
+          // The verdict, applied to the row that is already there. The check
+          // runs beside the negotiation now, so this frame arrives after the
+          // offer it belongs to — carried so a transcript read back still
+          // shows what the search found and the pages it opened.
+          if (event.type === "offer-checked") {
+            for (let i = turns.length - 1; i >= 0; i -= 1) {
+              const turn = turns[i];
+              const offer = turn?.offer;
+              if (!turn || !offer || offer.id !== event.offerId) continue;
+              turns[i] = {
+                ...turn,
+                offer: { ...offer, feasibility: event.feasibility },
+                ...(event.sourced ? { sourced: event.sourced } : {}),
+              };
+              break;
+            }
           }
           if (event.type === "agreed") {
             updateSession(session.id, {
               turns: [...turns],
               plan: event.plan,
+              // Written with the plan, not left for `done`: `planViewFrom`
+              // renders nothing without both, and this frame arrives five
+              // large-model calls before `done` does. The write-up replaces
+              // both a moment later.
+              fairness: event.fairness,
               // Read fresh, not from the snapshot this request opened with: if
               // you approved while the room was still talking, that tap must
               // not be written back to false underneath you.
@@ -215,6 +344,10 @@ function streamNegotiation(params: RunParams, signal: AbortSignal): Response {
               fairness: event.fairness,
               reports: event.reports,
               usage: event.usage,
+              // The written-up plan, when there is one. Same offer as the
+              // provisional one this overwrites — the engine pins it — with
+              // the runner-up and the prose the model wrote.
+              ...(event.plan ? { plan: event.plan } : {}),
             });
           }
 
@@ -224,6 +357,11 @@ function streamNegotiation(params: RunParams, signal: AbortSignal): Response {
         // The engine does not throw, so this is the encoder or a closed stream.
         // Either way the run is over and the sentinel still goes out.
         console.warn("[negotiate] stream ended early:", error);
+      } finally {
+        // Before the sentinel, not after: the lease guards the session writes
+        // above, and by here the last of them has happened. Releasing twice is
+        // releasing once — `releaseRun` only drops an entry that is still ours.
+        releaseRun(session.id, token);
       }
 
       send("[DONE]");
@@ -256,8 +394,8 @@ function streamNegotiation(params: RunParams, signal: AbortSignal): Response {
  * Who this stream is for, or `null` if the caller named somebody who isn't here.
  *
  * Absent means the demo user, matching `/api/session`: the town screen only ever
- * watches as Maya and should not have to say so. An unrecognised name is a typo
- * rather than a guest, and the 400 below is better than quietly opening Maya's
+ * watches as Richard and should not have to say so. An unrecognised name is a typo
+ * rather than a guest, and the 400 below is better than quietly opening Richard's
  * stream for a caller who asked to be someone else.
  */
 function parseViewer(raw: unknown): ParticipantId | null {

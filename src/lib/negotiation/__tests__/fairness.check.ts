@@ -84,7 +84,7 @@ function plan(overrides: Partial<Plan> = {}): Plan {
   };
 }
 
-/** Maya asked for four things and privately capped herself at $600. */
+/** Richard asked for four things and privately capped herself at $600. */
 const MAYA_WANTS = [
   "beach days",
   "direct flights",
@@ -143,7 +143,7 @@ function gaveUpOf(report: FairnessReport, id: ParticipantId): string {
 /* The happy plan                                                              */
 /* -------------------------------------------------------------------------- */
 
-check("a plan honouring everything gives Maya 5/5 and nobody is overruled", () => {
+check("a plan honouring everything gives Richard 5/5 and nobody is overruled", () => {
   const report = scoreFairness(briefs(), plan(), TURNS);
   const maya = rowFor(report, "maya");
   // Four stated wants plus the implicit budget ceiling.
@@ -177,7 +177,7 @@ check("a plan over one person's ceiling flips nobodyOverruled to false", () => {
   assert.equal(sam.wantsKept, 2);
   assert.equal(sam.gaveUp, "gave up staying under budget");
   assert.equal(report.nobodyOverruled, false);
-  assert.equal(fairnessSummaryLine(report), "Sam gave up the most");
+  assert.equal(fairnessSummaryLine(report), "Will gave up the most");
 });
 
 check("gaveUp never names the figure it is about", () => {
@@ -270,7 +270,7 @@ check("a clock time is never compared against a night count", () => {
 /* gaveUp                                                                      */
 /* -------------------------------------------------------------------------- */
 
-check("gaveUp picks the concrete noun out of an unmet want", () => {
+check("gaveUp names the want that was lost, in the words it was asked for in", () => {
   const report = scoreFairness(
     { ...briefs(), sam: brief("sam", ["a beach resort with a pool"], null) },
     plan(),
@@ -278,7 +278,47 @@ check("gaveUp picks the concrete noun out of an unmet want", () => {
   );
   const sam = rowFor(report, "sam");
   assert.equal(sam.wantsKept, 0);
-  assert.equal(sam.gaveUp, "gave up the resort");
+  assert.equal(sam.gaveUp, "gave up a beach resort with a pool");
+});
+
+check("gaveUp never prints a placeholder word as the thing somebody lost", () => {
+  // Observed in a judges' round: "somewhere worth dressing up for" came out as
+  // "gave up the somewhere", and a second pass at the same heuristic turned it
+  // into "gave up the dressing". Picking the longest word is right for
+  // matching a want against a plan and wrong for printing one.
+  for (const want of [
+    "somewhere worth dressing up for",
+    "somewhere quiet enough to talk",
+    "a place people actually like",
+  ]) {
+    const report = scoreFairness(
+      { ...briefs(), sam: brief("sam", [want], null) },
+      plan(),
+      TURNS,
+    );
+    const gaveUp = rowFor(report, "sam").gaveUp ?? "";
+    assert.equal(gaveUp, `gave up ${want}`, `for ${want}`);
+    for (const placeholder of ["the somewhere", "the dressing", "the enough", "the people"]) {
+      assert.ok(!gaveUp.includes(placeholder), `${gaveUp} still says "${placeholder}"`);
+    }
+  }
+});
+
+check("a want phrased as a refusal reads as the limit it was", () => {
+  // "gave up no flights before 8am" says the opposite of what happened, so a
+  // negated want keeps the one-word form and is named as a limit.
+  const report = scoreFairness(
+    { ...briefs(), sam: brief("sam", ["no flights before 8am"], null) },
+    // The refusal has to actually be broken for anything to be given up: the
+    // default offer leaves at 11am, which keeps it.
+    plan({ offer: offer({ flightNote: "6am departure, one connection" }) }),
+    TURNS,
+  );
+  const row = rowFor(report, "sam");
+  assert.equal(row.wantsKept, 0, JSON.stringify(row));
+  const gaveUp = row.gaveUp ?? "";
+  assert.ok(gaveUp.endsWith(" limit"), gaveUp);
+  assert.ok(!gaveUp.startsWith("gave up no "), gaveUp);
 });
 
 check("gaveUp prefers the want the person actually argued for", () => {
@@ -290,8 +330,9 @@ check("gaveUp prefers the want the person actually argued for", () => {
     plan(),
     TURNS,
   );
-  // Both are unmet, but only the resort shows up in Sam's own transcript lines.
-  assert.equal(rowFor(report, "sam").gaveUp, "gave up the resort");
+  // Both are unmet, but only the resort shows up in Will's own transcript lines,
+  // so the resort is the one named — the hostel would render differently.
+  assert.equal(rowFor(report, "sam").gaveUp, "gave up a beach resort with a pool");
 });
 
 check("the 60% threshold is what decides nobodyOverruled", () => {
@@ -327,7 +368,7 @@ check("the 60% threshold is what decides nobodyOverruled", () => {
   );
   assert.equal(rowFor(oneOfFive, "maya").wantsKept, 1);
   assert.equal(oneOfFive.nobodyOverruled, false);
-  assert.equal(fairnessSummaryLine(oneOfFive), "Maya gave up the most");
+  assert.equal(fairnessSummaryLine(oneOfFive), "Richard gave up the most");
 });
 
 /* -------------------------------------------------------------------------- */

@@ -4,8 +4,8 @@
  * The session object is the whole demo: four briefs, four real ceilings, four
  * private transcripts and four private reports. That is exactly the shape the
  * negotiation needs and exactly the shape no browser may ever see. Handing it
- * out over HTTP would mean one `curl` returns Maya's $600, Sam's credit card
- * note and Priya's sister's ticket — the product's entire claim, undone by the
+ * out over HTTP would mean one `curl` returns Richard's $600, Will's credit card
+ * note and Tsai's sister's ticket — the product's entire claim, undone by the
  * endpoint that feeds the screen that makes the claim.
  *
  * So the HTTP boundary narrows here, once. `GET /api/session` and every POST
@@ -38,6 +38,7 @@
  */
 
 import { z } from "zod";
+import { hasBriefed } from "@/lib/flow";
 import {
   PARTICIPANT_IDS,
   YOU,
@@ -58,9 +59,9 @@ import {
   publicMandateSchema,
   usageSchema,
   displayNamesOf,
-  hasBriefed,
   type DemoSession,
   type NegotiationEvent,
+  type ParticipantState,
 } from "@/lib/types";
 
 /** The person a view is built for when a caller does not say. The demo user. */
@@ -202,6 +203,28 @@ export type SessionView = z.infer<typeof sessionViewSchema>;
  * total: it never throws, and a viewer with no participant state still gets a
  * well-formed view of the shared fields rather than a 500 mid-demo.
  */
+/**
+ * Has this person actually said anything, as opposed to having been read?
+ *
+ * Deliberately narrower than `hasBriefed` in `lib/flow.ts`, and the two are
+ * asking different questions. The flow guard asks "is there anything here for
+ * an agent to argue from", and a seat seeded from a group chat passes it —
+ * correctly, because there is: a want somebody typed in the chat, which is
+ * enough to let them through to the sliders and the town.
+ *
+ * The lobby is asking whether to wait for this person, and a guess we made on
+ * their behalf is not an answer from them. A room that counted drafts as
+ * briefed would show four ticks the moment it was created and offer to start
+ * before anybody had said a word to their own agent — including the one thing
+ * the whole product is for, the number nobody types in the chat.
+ *
+ * `draft` is cleared by `/api/brief` on the first turn, so this becomes true
+ * exactly when they speak.
+ */
+function hasSpoken(state: ParticipantState): boolean {
+  return state.draft === undefined && hasBriefed(state.brief);
+}
+
 export function sessionViewFor(
   session: DemoSession,
   viewerId: ParticipantId,
@@ -229,7 +252,7 @@ export function sessionViewFor(
       bio,
       approved: state.approved,
       claimed: state.claimedAt !== null,
-      briefed: hasBriefed(state.brief),
+      briefed: hasSpoken(state),
     });
   }
 
@@ -245,7 +268,7 @@ export function sessionViewFor(
       personality: mine?.personality ?? EMPTY_PERSONALITY,
       approved: mine?.approved ?? false,
       claimed: mine?.claimedAt != null,
-      briefed: hasBriefed(mine?.brief),
+      briefed: mine ? hasSpoken(mine) : false,
       // Null host means solo, and in a solo run the one person present is the
       // host of nothing — there is nobody to be host over. Both buttons the
       // flag guards stay exactly as unguarded as they were.
@@ -270,9 +293,10 @@ export function sessionViewFor(
  *
  * `sessionViewFor`'s sibling, and deliberately the same shape of promise: pure,
  * total, and the only thing between `runNegotiation` and a browser. Two of the
- * six frame types carry something private and both are handled by name; every
- * other frame is returned by reference, so a `round`, `thinking`, `offer` or
- * `agreed` event is provably the object the engine produced.
+ * seven frame types carry something private and both are handled by name;
+ * every other frame is returned by reference, so a `round`, `thinking`,
+ * `offer`, `offer-checked` or `agreed` event is provably the object the engine
+ * produced.
  *
  * - **`speak`** keeps `privateReasonKept` only for the person whose agent said
  *   it. It names the real reason — "protecting a $600 ceiling" — and the room
@@ -286,6 +310,22 @@ export function sessionViewFor(
  *
  * A viewer the run has no report for gets an empty map rather than a missing
  * field, so the frame still parses as a `NegotiationEvent` on the way in.
+ *
+ * `offer-checked` is returned untouched, and that was checked rather than
+ * assumed. It carries an offer id, an `OfferFeasibility` and the sentence the
+ * transcript prints under the card. All three are about an option that was
+ * said out loud: the offer was already sent to every viewer on its own frame,
+ * the verdict is what a stranger with a search engine would find about that
+ * same trip, and the desk that produced it is handed an `Offer` and never a
+ * `Brief`. Narrowing it would hide from one person the price check the other
+ * three can read on the same card.
+ *
+ * `agreed` carries a `FairnessReport` and is still returned untouched. That was
+ * checked rather than assumed: a fairness row is a participant id, two counts
+ * and the one want they gave up, it names no ceiling, and `sessionViewFor`
+ * already hands the same object to every viewer because the meter is the shared
+ * plan screen's headline. Narrowing it here would hide from one person what the
+ * screen shows all four.
  */
 export function eventForViewer(
   event: NegotiationEvent,
@@ -301,9 +341,9 @@ export function eventForViewer(
     }
 
     default:
-      // round, thinking, offer, agreed: public by construction. Returned
-      // untouched so the narrowing cannot quietly reshape a frame it has no
-      // business editing.
+      // round, thinking, offer, offer-checked, agreed: public by
+      // construction. Returned untouched so the narrowing cannot quietly
+      // reshape a frame it has no business editing.
       return event;
   }
 }

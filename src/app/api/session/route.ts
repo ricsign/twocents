@@ -19,6 +19,7 @@
 import { z } from "zod";
 import { resolveSession, roomFromRequest } from "@/lib/room/identity";
 import { resetSession, updateSession } from "@/lib/session";
+import { applyBrief, applyPersonality } from "@/lib/session-writes";
 import {
   DEFAULT_VIEWER,
   sessionViewFor,
@@ -47,7 +48,7 @@ export const dynamic = "force-dynamic";
  * rather than complaining about all four.
  *
  * `viewer` is optional on every action and defaults to the demo user, so the
- * screens that only ever speak for Maya do not have to say so twice.
+ * screens that only ever speak for Richard do not have to say so twice.
  */
 const requestSchema = z.discriminatedUnion("action", [
   z.object({
@@ -102,7 +103,13 @@ function viewResponse(session: DemoSession, viewer: ParticipantId): Response {
   return Response.json(view);
 }
 
-/** Replaces one participant's state without touching the other three. */
+/**
+ * Replaces one participant's state without touching the other three.
+ *
+ * Used only by `approve`, which is the one write that leaves the run standing.
+ * A brief or a personality edit goes through `lib/session-writes.ts` instead,
+ * because it has to take the run down with it.
+ */
 function patchParticipant(
   session: DemoSession,
   participantId: ParticipantId,
@@ -161,7 +168,10 @@ export async function GET(request: Request): Promise<Response> {
   const url = new URL(request.url);
 
   // An unknown viewer is a typo, not a guest: 400 rather than quietly handing
-  // back Maya's view of a session the caller asked about as someone else.
+  // back Richard's view of a session the caller asked about as someone else.
+  // Validated when given and otherwise left alone, because with no parameters
+  // at all this now means "me, where I am" — which is what lets the lobby and
+  // the plan screen poll with a bare fetch and still be narrowed correctly.
   const asked = url.searchParams.get("viewer");
   if (asked !== null) {
     const viewer = participantIdSchema.safeParse(asked);
@@ -239,16 +249,14 @@ export async function POST(request: Request): Promise<Response> {
           } as z.core.$ZodIssue,
         ]);
       }
-      const next = patchParticipant(session, body.participantId, { brief: body.brief });
+      const next = applyBrief(session, body.participantId, body.brief);
       return next
         ? viewResponse(next, viewer)
         : Response.json({ error: "unknown participant" }, { status: 404 });
     }
 
     case "updatePersonality": {
-      const next = patchParticipant(session, body.participantId, {
-        personality: body.personality,
-      });
+      const next = applyPersonality(session, body.participantId, body.personality);
       return next
         ? viewResponse(next, viewer)
         : Response.json({ error: "unknown participant" }, { status: 404 });

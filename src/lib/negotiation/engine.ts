@@ -89,17 +89,64 @@ export interface NegotiationRunOptions {
  * facts the engine already knows, and asking a model to restate them is tokens
  * spent on something it can get wrong.
  */
+/**
+ * The offer as its proposer describes it: the trip, and nothing about the
+ * bookkeeping around it.
+ *
+ * `id`, `proposedBy` and `feasibility` are cut out of what the model is asked
+ * for, because all three are things the engine knows and it knows them better.
+ * The id is generated here, `proposedBy` is whoever is speaking, and the
+ * feasibility verdict is overwritten by the web check a few lines below no
+ * matter what arrives. Asking for them anyway cost three ways: a wrong
+ * `proposedBy` — a display name, or the agent naming whoever it was answering
+ * — failed the whole draft against this schema, and a failed draft silently
+ * becomes an offline one, so a live room kept putting canned template options
+ * on the table. It also spent output tokens inside a tight cap on fields that
+ * were discarded.
+ */
+const offerDraftSchema = offerSchema
+  .omit({ proposedBy: true, feasibility: true })
+  .partial({ id: true });
+
+/**
+ * The plan as the model writes it.
+ *
+ * Same cut as `offerDraftSchema`, and for the same reason: the final call was
+ * failing its own schema on `offer.proposedBy` and falling back to the offline
+ * script, so a live negotiation ended on a canned plan. Whose option won is
+ * something the engine can look up — it has every offer that was put on the
+ * table — and `groupTotal` and `agreedInMs` are overwritten below regardless.
+ */
+const planDraftSchema = planSchema.extend({
+  offer: offerDraftSchema,
+  runnerUp: offerDraftSchema.nullable(),
+  groupTotal: z.number().optional(),
+  agreedInMs: z.number().optional(),
+});
+
 const turnDraftSchema = z.object({
   kind: turnKindSchema,
   text: z.string(),
-  offer: offerSchema.optional(),
+  offer: offerDraftSchema.optional(),
   privateReasonKept: z.string().optional(),
 });
 
-type TurnDraft = z.infer<typeof turnDraftSchema>;
+/** What the model emits. */
+type TurnDraftRaw = z.infer<typeof turnDraftSchema>;
 
-/** Room for a line plus an offer; a turn that needs more than this is too long. */
-const TURN_MAX_TOKENS = 600;
+/** What `generateLine` hands back: the same line, with a finished offer. */
+type TurnDraft = Omit<TurnDraftRaw, "offer"> & { offer?: Offer };
+
+/**
+ * Room for a line plus an offer.
+ *
+ * Sized for the whole emit, not for the sentence. A turn that proposes
+ * something carries eight more fields than one that does not, and a cap that
+ * only fits the prose truncates the tool call mid-object — which arrives as a
+ * schema failure, which falls back to the offline script. The room then reads
+ * as scripted at exactly the moments it is doing the most interesting thing.
+ */
+const TURN_MAX_TOKENS = 1200;
 const PLAN_MAX_TOKENS = 900;
 const REPORT_MAX_TOKENS = 500;
 
@@ -113,8 +160,12 @@ const REPORT_MAX_TOKENS = 500;
  * Derived from `PRICE_STANCE_BANDS` rather than restating it: the stance is the
  * sayable form of a ceiling, so the ceiling of a stance is the top of the band
  * it came from. "Happy to splurge" has no ceiling worth modelling.
+ *
+ * Exported for the check suites, which have to be able to say "this room's
+ * options are all over what these four can be asked to pay" without writing
+ * the figure down a second time and letting the two copies drift.
  */
-const STANCE_CEILING: Record<PriceStance, number> = {
+export const STANCE_CEILING: Record<PriceStance, number> = {
   "must be cheap": 850,
   "prefers value": 1500,
   flexible: 2600,
@@ -249,6 +300,33 @@ export function violatesDealbreaker(offer: Offer, dealbreaker: string): boolean 
 }
 
 /**
+ * The most this room can ask of anyone, per person.
+ *
+ * The tightest stance at the table, because an option is only affordable for
+ * the room when it is affordable for its least flexible seat. Read off the
+ * public stances rather than the briefs: this is the same information the
+ * agents themselves argued from, so an offer that clears it is one they could
+ * all have said yes to honestly.
+ */
+function lowestStanceCeiling(mandates: readonly PublicMandate[]): number {
+  return mandates.reduce(
+    (lowest, mandate) => Math.min(lowest, STANCE_CEILING[mandate.priceStance]),
+    Number.POSITIVE_INFINITY,
+  );
+}
+
+/**
+ * Whether the room is still allowed to settle on this offer.
+ *
+ * A price the web says does not exist is not something the room gets to
+ * agree to, however enthusiastically it agreed. An unchecked offer counts as
+ * bookable: nothing has contradicted it.
+ */
+function isBookable(offer: Offer): boolean {
+  return offer.feasibility?.bookable !== false;
+}
+
+/**
  * The convergence rule, in full.
  *
  * An offer is accepted when three things hold at once:
@@ -278,10 +356,7 @@ function findConvergedOffer(
 ): Offer | null {
   if (offers.length === 0) return null;
 
-  const stanceCeiling = mandates.reduce(
-    (lowest, mandate) => Math.min(lowest, STANCE_CEILING[mandate.priceStance]),
-    Number.POSITIVE_INFINITY,
-  );
+  const stanceCeiling = lowestStanceCeiling(mandates);
 
   // Most recent first: the room converges on where it just got to, not on the
   // opening bid it spent four rounds arguing down.
@@ -289,10 +364,7 @@ function findConvergedOffer(
     const offer = offers[i] as Offer;
 
     if (offer.perPerson > stanceCeiling) continue;
-
-    // A price the web says does not exist is not something the room gets to
-    // settle on, however enthusiastically it agreed.
-    if (offer.feasibility?.bookable === false) continue;
+    if (!isBookable(offer)) continue;
 
     const breaksSomething = PARTICIPANT_IDS.some((participantId) => {
       const brief = briefs[participantId];
@@ -322,6 +394,48 @@ function findConvergedOffer(
 function roomAssented(turns: readonly NegotiationTurn[], roomSize: number): boolean {
   if (roomSize === 0 || turns.length < roomSize) return false;
   return turns.slice(-roomSize).every((turn) => turn.kind === "agrees");
+}
+
+/**
+ * What the room settled on when the whole table assented to something the
+ * convergence rule had not accepted.
+ *
+ * It answers a different question from `findConvergedOffer` — that one asks
+ * "may they agree to this?", this one asks "they have agreed, to what?" — but
+ * it answers it under the same affordability rule, because the alternative is
+ * the bug this function was written for: the fallback used to take the most
+ * recent bookable offer at any price, and a $1,200 week duly settled a room
+ * with two "must be cheap" seats in it.
+ *
+ * So: the latest offer the room's tightest stance can actually carry. When
+ * nothing on the table clears it, the cheapest bookable one — the table did
+ * say yes to something, and ending a demo with no plan is worse than ending
+ * it with an expensive one. That is the honest outcome rather than a good
+ * one, and it is scored as such: `scoreFairness` will report the broken
+ * ceilings, and the plan screen's headline is built from that report rather
+ * than from a claim.
+ *
+ * Ties go to the offer proposed first, so two runs of one session settle the
+ * same way.
+ */
+function assentedOffer(
+  offers: readonly Offer[],
+  mandates: readonly PublicMandate[],
+): Offer | null {
+  const bookable = offers.filter(isBookable);
+  if (bookable.length === 0) return null;
+
+  const stanceCeiling = lowestStanceCeiling(mandates);
+  for (let i = bookable.length - 1; i >= 0; i -= 1) {
+    const offer = bookable[i] as Offer;
+    if (offer.perPerson <= stanceCeiling) return offer;
+  }
+
+  let cheapest = bookable[0] as Offer;
+  for (const offer of bookable) {
+    if (offer.perPerson < cheapest.perPerson) cheapest = offer;
+  }
+  return cheapest;
 }
 
 /** A plan-shaped view of one offer, for scoring it before anyone has agreed. */
@@ -404,17 +518,29 @@ function buildOfflineHints(
     });
   }
 
-  const priceCap = mandates.reduce(
-    (lowest, mandate) => Math.min(lowest, STANCE_CEILING[mandate.priceStance]),
-    Number.POSITIVE_INFINITY,
-  );
+  const priceCap = lowestStanceCeiling(mandates);
 
-  const first = people[0];
+  // When the trip happens, taken from whoever actually said so rather than
+  // from seat zero. Seat zero is always the person at the keyboard, and their
+  // brief is empty until they type something — so reading both fields off
+  // them put a blank on every offer card in a room where three other people
+  // had stated the dates. First non-empty wins, in roster order, because the
+  // four briefs are for one shared trip and disagreement between them is not
+  // a thing this module is entitled to resolve.
+  let when = "";
+  let nights: number | null = null;
+  for (const person of people) {
+    const brief = briefs[person.participantId];
+    if (!brief) continue;
+    if (when.length === 0 && brief.dates.trim().length > 0) when = brief.dates;
+    if (nights === null && brief.nights !== null) nights = brief.nights;
+  }
+
   return {
     scenarioId: isSeedScenario(session) ? SEED_SCENARIO_ID : null,
     topic: session.tripName,
-    when: first ? (briefs[first.participantId]?.dates ?? "") : "",
-    nights: first ? (briefs[first.participantId]?.nights ?? null) : null,
+    when,
+    nights,
     priceCap,
     people,
   };
@@ -447,6 +573,20 @@ export async function* runNegotiation(
   let usage: Usage = { ...EMPTY_USAGE };
   let leaksCaught = 0;
 
+  /**
+   * Folds one call's usage into the run's total.
+   *
+   * A helper rather than `usage = sumUsage(usage, …)` written out at each call
+   * site, because the private reports below now run concurrently. The
+   * assignment is one synchronous statement either way, so no count is lost
+   * today — but that is a property of each call site rather than of the
+   * accumulator, and the figure it feeds is the cost the plan screen prints.
+   * One place to read, one place to get wrong.
+   */
+  const addUsage = (delta: Usage): void => {
+    usage = sumUsage(usage, delta);
+  };
+
   const loggedFailures = new Set<string>();
   /** One line per distinct failure. A stage log nobody can read is noise. */
   const logOnce = (tag: string, error: unknown): void => {
@@ -467,13 +607,17 @@ export async function* runNegotiation(
   ): Promise<T | null> => {
     try {
       const result = await provider.json(req, schema);
-      usage = sumUsage(usage, result.usage);
+      addUsage(result.usage);
       return result.value;
     } catch (error) {
       logOnce(req.tag, error);
       if (provider !== offline) {
         // Degrade for the rest of the run rather than retrying a backend that
         // just failed: on stage, the second timeout costs as much as the first.
+        // Safe under the concurrent report calls below: the retry re-reads
+        // `provider` on entry, so a caller that set it and a caller that was
+        // already in flight both end up on the offline provider, and setting
+        // it twice is setting it once.
         provider = offline;
         return runJson(req, schema);
       }
@@ -494,14 +638,24 @@ export async function* runNegotiation(
     if (!webSearchEnabled()) return UNCHECKED;
     const request = buildFeasibilityRequest(offer);
 
+    const startedAt = Date.now();
     try {
       const result = await provider.json(request, offerFeasibilitySchema);
-      usage = sumUsage(usage, result.usage);
+      addUsage(result.usage);
+      // What one search actually costs the run, per offer. Printed because the
+      // whole point of making this call non-blocking is a wall-clock claim,
+      // and a claim nobody can read the number behind is a guess.
+      console.info(`[negotiation] offer-check ${offer.id} in ${Date.now() - startedAt}ms`);
       // The pages come from the call, not from the model's answer: `sources` is
       // what it says it read, `links` is what it actually opened.
       return { ...result.value, links: result.sources };
     } catch (error) {
       logOnce("offer-check", error);
+      // Timed here too: a check that gave up at its deadline is the expensive
+      // case, and the one worth being able to see in the log.
+      console.info(
+        `[negotiation] offer-check ${offer.id} gave up after ${Date.now() - startedAt}ms`,
+      );
       try {
         const canned = await offline.json(request, offerFeasibilitySchema);
         return canned.value;
@@ -552,6 +706,108 @@ export async function* runNegotiation(
 
   const aborted = (): boolean => opts.signal?.aborted === true;
 
+  /** Makes each generated offer id unique inside one run. */
+  let offersProposed = 0;
+
+  /* ---- The price checks, in flight ---------------------------------------- */
+
+  /**
+   * The checks that have not answered yet, by offer id.
+   *
+   * The room used to await one of these before it would let the offer be
+   * spoken, which meant every proposal froze the town for the length of a web
+   * search — four agents over five rounds, and it was the longest thing on
+   * screen by some distance. The offer now hits the table immediately and its
+   * check runs beside the negotiation.
+   *
+   * What the engine still owes is that no verdict is lost. `findConvergedOffer`
+   * reads `feasibility?.bookable !== false` and the stored transcript rows
+   * carry `sourced`, so the outstanding checks are joined once per round —
+   * after the rotation, before convergence is decided — which is the last
+   * moment at which a verdict can still change the answer.
+   */
+  const pendingChecks = new Map<string, Promise<void>>();
+
+  /** Verdicts that have landed and not yet been yielded to the caller. */
+  const landedChecks: Extract<NegotiationEvent, { type: "offer-checked" }>[] = [];
+
+  /**
+   * Every verdict that has come back, by offer id.
+   *
+   * The arrays below are not enough on their own, because a check can answer
+   * while its own line is still being generated — a repeat nudge is a second
+   * model call, and the offline provider answers in microseconds — and at that
+   * moment the offer is in neither `offers` nor `turns` for `applyCheck` to
+   * find. This map is what the round loop reads to catch up a verdict that
+   * arrived before the thing it belongs to existed, which makes the whole
+   * mechanism independent of which of the two lands first.
+   */
+  const verdicts = new Map<string, OfferFeasibility>();
+
+  /**
+   * Writes a verdict onto the offer and the turn that carry it.
+   *
+   * Both arrays are rewritten in place rather than the objects mutated: the
+   * offers list is what `buildNegotiationUserPrompt` formats for the next
+   * agent, so a verdict landing mid-round reaches the rest of the table the
+   * same way it always did, and the turn is what the route reads back.
+   */
+  const applyCheck = (offerId: string, feasibility: OfferFeasibility): void => {
+    verdicts.set(offerId, feasibility);
+    const sourced = sourcedFrom(feasibility);
+
+    for (let i = 0; i < offers.length; i += 1) {
+      const offer = offers[i];
+      if (offer && offer.id === offerId) offers[i] = { ...offer, feasibility };
+    }
+
+    for (let i = 0; i < turns.length; i += 1) {
+      const turn = turns[i];
+      const offer = turn?.offer;
+      if (!turn || !offer || offer.id !== offerId) continue;
+      turns[i] = {
+        ...turn,
+        offer: { ...offer, feasibility },
+        ...(sourced ? { sourced } : {}),
+      };
+    }
+  };
+
+  /** Starts one check and queues its verdict for the next drain. */
+  const startCheck = (offer: Offer): void => {
+    const settled = checkOffer(offer).then((feasibility) => {
+      applyCheck(offer.id, feasibility);
+      const sourced = sourcedFrom(feasibility);
+      landedChecks.push({
+        type: "offer-checked",
+        offerId: offer.id,
+        feasibility,
+        ...(sourced ? { sourced } : {}),
+      });
+      pendingChecks.delete(offer.id);
+    });
+    pendingChecks.set(offer.id, settled);
+  };
+
+  /** Every verdict that has landed since the last drain, as frames. */
+  function* drainChecks(): Generator<NegotiationEvent, void, undefined> {
+    while (landedChecks.length > 0) {
+      const landed = landedChecks.shift();
+      if (landed) yield landed;
+    }
+  }
+
+  /**
+   * Joins every outstanding check.
+   *
+   * `checkOffer` never rejects — it answers `UNCHECKED` rather than throwing —
+   * so this settles on the slowest deadline and nothing else.
+   */
+  const joinChecks = async (): Promise<void> => {
+    if (pendingChecks.size === 0) return;
+    await Promise.all([...pendingChecks.values()]);
+  };
+
   /**
    * Generates one public line and guarantees it is safe to say.
    *
@@ -581,6 +837,7 @@ export async function* runNegotiation(
             offers,
             leadingOffer: offers.length > 0 ? (offers[offers.length - 1] as Offer) : null,
             correction: extra,
+            names,
           }),
         },
       ],
@@ -594,7 +851,7 @@ export async function* runNegotiation(
     });
 
     const first = await runJson(request(correction), turnDraftSchema);
-    let draft: TurnDraft = first ?? {
+    let draft: TurnDraftRaw = first ?? {
       kind: "agrees",
       text: `${displayNameFor(names, speaker)}'s agent backs where this is going.`,
     };
@@ -626,22 +883,50 @@ export async function* runNegotiation(
       const offer = draft.offer;
       const scrubbed: Offer = {
         ...offer,
+        // Stamped here rather than asked for: the speaker is this call's own
+        // argument, and the id only has to be unique within one run.
+        id: offer.id ?? `offer-${speaker}-${attemptRound}-${offersProposed++}`,
+        proposedBy: speaker,
         highlights: offer.highlights.map((line) => checkForLeaks(line, secrets).redacted),
         flightNote: checkForLeaks(offer.flightNote, secrets).redacted,
         lodgingNote: checkForLeaks(offer.lodgingNote, secrets).redacted,
       };
 
-      // Overwritten rather than merged: whatever the proposer put in this field
-      // is its own opinion of its own price, and the whole point is that the
-      // web gets the last word on that.
-      draft = { ...draft, offer: { ...scrubbed, feasibility: await checkOffer(scrubbed) } };
+      // The check starts here and is not waited on. The offer goes to the
+      // table with no `feasibility` at all, which is the honest state of it —
+      // nothing has been checked yet — and the verdict is written onto it by
+      // `applyCheck` when it lands. Whatever the proposer put in that field is
+      // dropped either way: it is the proposer's own opinion of its own price,
+      // and the point of the desk is that the web gets the last word on that.
+      startCheck(scrubbed);
+      return { ...draft, offer: scrubbed };
     }
 
-    return draft;
+    return { ...draft, offer: undefined };
+  };
+
+  /**
+   * Fairness for one candidate plan.
+   *
+   * Scored twice in a run — once the instant the room settles, once on the
+   * written-up plan — and wrapped both times, because it is the claim the plan
+   * screen makes out loud and a throw here would cost the frame carrying it.
+   */
+  const fairnessFor = (candidate: Plan): FairnessReport => {
+    try {
+      return scoreFairness(briefs, candidate, turns);
+    } catch (error) {
+      logOnce("fairness", error);
+      return { rows: [], nobodyOverruled: false };
+    }
   };
 
   let converged: Offer | null = null;
   let roundsUsed = 0;
+  /** When the room settled, measured. Null if it never did. */
+  let agreedAtMs: number | null = null;
+  /** Whether `agreed` has already gone out, so it goes out exactly once. */
+  let announced = false;
 
   try {
     while (roundsUsed < roundCap && converged === null) {
@@ -672,9 +957,16 @@ export async function* runNegotiation(
           );
         }
 
-        // Only a turn that put a priced option on the table has a search
-        // behind it, and only when that search actually opened something.
-        const sourced = sourcedFrom(draft.offer?.feasibility);
+        // The desk is usually still working at this point, so an offer
+        // normally reaches the table with no verdict on it — that is the
+        // whole change, and the `offer-checked` frame is what fills it in.
+        // When the verdict did beat the line, it is picked up here instead,
+        // because `applyCheck` ran before either array had anything to patch.
+        const drafted = draft.offer;
+        const early = drafted ? verdicts.get(drafted.id) : undefined;
+        const proposed: Offer | undefined =
+          drafted && early ? { ...drafted, feasibility: early } : drafted;
+        const sourced = early ? sourcedFrom(early) : null;
 
         const turn: NegotiationTurn = {
           id: `turn-${speaker}-${round}-${turns.length}`,
@@ -682,11 +974,18 @@ export async function* runNegotiation(
           speaker,
           kind: draft.kind,
           text: draft.text,
-          ...(draft.offer ? { offer: draft.offer } : {}),
+          ...(proposed ? { offer: proposed } : {}),
           ...(draft.privateReasonKept ? { privateReasonKept: draft.privateReasonKept } : {}),
           ...(sourced ? { sourced } : {}),
         };
         turns.push(turn);
+        // Pushed in the same synchronous step as the turn, before the yield
+        // below hands control back to the caller: a verdict landing across
+        // that suspension has to find both halves or it patches one and
+        // leaves the other stale, and `findConvergedOffer` reads this array.
+        if (proposed && !offers.some((existing) => existing.id === proposed.id)) {
+          offers.push(proposed);
+        }
 
         yield {
           type: "speak",
@@ -694,15 +993,23 @@ export async function* runNegotiation(
           kind: turn.kind,
           text: turn.text,
           ...(turn.privateReasonKept ? { privateReasonKept: turn.privateReasonKept } : {}),
-          ...(sourced ? { sourced } : {}),
         };
 
-        if (turn.offer) {
-          const offer = turn.offer;
-          if (!offers.some((existing) => existing.id === offer.id)) offers.push(offer);
-          yield { type: "offer", speaker, offer };
-        }
+        if (proposed) yield { type: "offer", speaker, offer: proposed };
+
+        // Anything the desk answered while this agent was composing. Sent
+        // between turns rather than held to the end of the round, so a card
+        // fills in close to when it was proposed.
+        yield* drainChecks();
       }
+
+      // The join. Every verdict has to be in hand before the two convergence
+      // rules below read `feasibility`, and before the transcript rows the
+      // route stores are read back, so this is where the round pays for
+      // whatever the searches cost — once, for all four of them at their
+      // slowest, instead of four times in series.
+      await joinChecks();
+      yield* drainChecks();
 
       // From round two, after a full rotation: everyone has now answered the
       // offers on the table at least once, so an offer that clears the rule has
@@ -713,16 +1020,35 @@ export async function* runNegotiation(
 
       // A room can also settle in a way that rule cannot see: everyone in this
       // rotation said "agrees" and nobody put anything new up. The arithmetic
-      // may still be holding out — a stance ceiling or a fairness row can
-      // object after the table itself has stopped arguing — but spending the
-      // remaining rounds then buys nothing except agents agreeing again, which
-      // is both dead screen time and four model calls a round. The offer they
-      // are agreeing to is the one they have been talking about: the leading
-      // one. If none exists there is nothing to have agreed to, and the loop
-      // carries on.
+      // may still be holding out — a fairness row can object after the table
+      // itself has stopped arguing — but spending the remaining rounds then
+      // buys nothing except agents agreeing again, which is both dead screen
+      // time and four model calls a round. What it must not buy is a plan
+      // nobody can pay for, so `assentedOffer` holds the same affordability
+      // rule the primary one does. If there is nothing bookable on the table
+      // there is nothing to have agreed to, and the loop carries on.
       if (converged === null && roomAssented(turns, order.length)) {
-        converged =
-          [...offers].reverse().find((offer) => offer.feasibility?.bookable !== false) ?? null;
+        converged = assentedOffer(offers, mandates);
+      }
+
+      // Announced here, from what is already in hand, rather than after the
+      // write-up. Between this line and the `done` frame are five large-model
+      // calls — the plan prose, then one private report per person — and not
+      // one of them changes what the room settled on. Waiting for them left
+      // the town visibly finished and the plan unreachable for tens of
+      // seconds. `candidatePlan` needs no model and `fairnessFor` is local
+      // arithmetic, so the screen has everything it renders from immediately
+      // and upgrades to the written-up version when `done` arrives.
+      if (converged !== null) {
+        agreedAtMs = Date.now() - startedAt;
+        const provisional: Plan = { ...candidatePlan(converged), agreedInMs: agreedAtMs };
+        yield {
+          type: "agreed",
+          plan: provisional,
+          runnerUp: provisional.runnerUp,
+          fairness: fairnessFor(provisional),
+        };
+        announced = true;
       }
     }
   } catch (error) {
@@ -749,12 +1075,45 @@ export async function* runNegotiation(
         offline: offlineHints(order[0] as ParticipantId, 0),
       },
     },
-    planSchema,
+    planDraftSchema,
   );
 
+  /**
+   * Puts the bookkeeping back on an offer the model described.
+   *
+   * It is matched to something already on the table by destination, because a
+   * plan is meant to be one of the options the room actually discussed: that
+   * recovers the real id, the real proposer and the web check behind it. When
+   * nothing matches — the model summarised the compromise into a new name —
+   * the offer still stands, credited to whoever the room converged with.
+   */
+  const settle = (
+    draft: z.infer<typeof offerDraftSchema>,
+    index: number,
+  ): Offer => {
+    const same = (a: string, b: string): boolean =>
+      a.trim().toLowerCase() === b.trim().toLowerCase();
+    const known = offers.find((offer) => same(offer.destination, draft.destination));
+    return {
+      ...draft,
+      id: draft.id ?? known?.id ?? `offer-plan-${index}`,
+      proposedBy: known?.proposedBy ?? converged?.proposedBy ?? (order[0] as ParticipantId),
+      ...(known?.feasibility ? { feasibility: known.feasibility } : {}),
+    };
+  };
+
   const fallbackOffer = converged ?? offers[offers.length - 1] ?? null;
-  const resolved: Plan | null =
-    planValue ?? (fallbackOffer ? candidatePlan(fallbackOffer) : null);
+  const resolved: Plan | null = planValue
+    ? {
+        ...planValue,
+        offer: settle(planValue.offer, 0),
+        runnerUp: planValue.runnerUp ? settle(planValue.runnerUp, 1) : null,
+        groupTotal: planValue.groupTotal ?? 0,
+        agreedInMs: planValue.agreedInMs ?? 0,
+      }
+    : fallbackOffer
+      ? candidatePlan(fallbackOffer)
+      : null;
 
   if (!resolved) {
     // No offers, no plan: the room said nothing usable. End the stream honestly
@@ -770,29 +1129,40 @@ export async function* runNegotiation(
     return;
   }
 
-  // Two fields the model does not get a vote on: the wall-clock figure is the
-  // "three weeks to ninety seconds" number and has to be measured, and the group
-  // total is arithmetic the plan screen prints next to it.
+  // Three fields the model does not get a vote on.
+  //
+  // The offer, when the room converged, is the one it converged on, whatever
+  // the write-up describes: the agreement has already been announced and is on
+  // a screen somebody is reading, and this call is prose about that trip, not a
+  // second chance to pick a different one. The runner-up, the sentence saying
+  // why it lost and the kept wants are still the model's to write.
+  //
+  // The wall-clock figure is the "three weeks to ninety seconds" number and has
+  // to be measured — at the moment the room settled, not at the moment the
+  // write-up finished, so it does not climb under a plan screen already showing
+  // it. The group total is arithmetic the plan screen prints next to it.
+  const agreedOffer = converged ?? resolved.offer;
   const plan: Plan = {
     ...resolved,
-    groupTotal: resolved.offer.perPerson * PARTICIPANT_IDS.length,
-    agreedInMs: Date.now() - startedAt,
+    offer: agreedOffer,
+    groupTotal: agreedOffer.perPerson * PARTICIPANT_IDS.length,
+    agreedInMs: agreedAtMs ?? Date.now() - startedAt,
   };
 
-  let fairness: FairnessReport;
-  try {
-    fairness = scoreFairness(briefs, plan, turns);
-  } catch (error) {
-    logOnce("fairness", error);
-    fairness = { rows: [], nobodyOverruled: false };
-  }
+  const fairness = fairnessFor(plan);
 
-  const reports = {} as Record<ParticipantId, AgentReport>;
-  for (const participantId of PARTICIPANT_IDS) {
-    if (aborted()) return;
-    const brief = briefs[participantId];
-    if (!brief) continue;
-
+  /**
+   * One person's private report. Never rejects.
+   *
+   * `runJson` already answers null rather than throwing, and the catch is the
+   * belt to that brace: these four run concurrently, and one report failing
+   * must cost its own card and nothing else — the other three still land and
+   * the run still reaches `done`.
+   */
+  const writeReport = async (
+    participantId: ParticipantId,
+    brief: Brief,
+  ): Promise<AgentReport> => {
     const row = fairness.rows.find((entry) => entry.participantId === participantId) ?? null;
     const prompts = buildPrivateReportPrompt(
       participantId,
@@ -802,20 +1172,26 @@ export async function* runNegotiation(
       row,
       names,
     );
-    const value = await runJson(
-      {
-        tag: "agent-report",
-        system: prompts.system,
-        messages: [{ role: "user", content: prompts.user }],
-        maxTokens: REPORT_MAX_TOKENS,
-        context: {
-          speaker: participantId,
-          participantId,
-          offline: offlineHints(participantId, 0),
+
+    let value: AgentReport | null = null;
+    try {
+      value = await runJson(
+        {
+          tag: "agent-report",
+          system: prompts.system,
+          messages: [{ role: "user", content: prompts.user }],
+          maxTokens: REPORT_MAX_TOKENS,
+          context: {
+            speaker: participantId,
+            participantId,
+            offline: offlineHints(participantId, 0),
+          },
         },
-      },
-      agentReportSchema,
-    );
+        agentReportSchema,
+      );
+    } catch (error) {
+      logOnce("agent-report", error);
+    }
 
     const report: AgentReport = value ?? {
       participantId,
@@ -825,13 +1201,35 @@ export async function* runNegotiation(
       secretsKept: [],
     };
 
-    reports[participantId] = {
+    return {
       ...report,
       participantId,
       // Computed, never asserted: "here is what I kept quiet" is the product's
       // central claim, and a model listing its own discretion is not evidence.
       secretsKept: secretsFromBrief(brief).map((secret) => secret.label),
     };
+  };
+
+  if (aborted()) return;
+
+  // Concurrent, because the four reports are independent: each reads one brief,
+  // one fairness row and the finished plan, and none reads another's answer.
+  // Sequentially they were four large-model round trips end to end, and the
+  // person waiting on the fourth is waiting on three answers they cannot see.
+  // The record is assembled afterwards in roster order, so the output does not
+  // depend on which call came back first.
+  const written = await Promise.all(
+    PARTICIPANT_IDS.map(async (participantId) => {
+      const brief = briefs[participantId];
+      return brief === undefined
+        ? ([participantId, null] as const)
+        : ([participantId, await writeReport(participantId, brief)] as const);
+    }),
+  );
+
+  const reports = {} as Record<ParticipantId, AgentReport>;
+  for (const [participantId, report] of written) {
+    if (report) reports[participantId] = report;
   }
 
   const elapsedMs = Date.now() - startedAt;
@@ -839,6 +1237,12 @@ export async function* runNegotiation(
     `[negotiation] ${roundsUsed} round(s), ${turns.length} turns, ${leaksCaught} leak(s) caught, ${usage.calls} call(s), ${elapsedMs}ms`,
   );
 
-  yield { type: "agreed", plan, runnerUp: plan.runnerUp };
-  yield { type: "done", fairness, reports, usage, elapsedMs };
+  // Only when the round cap ran out without the room converging: there was
+  // nothing to announce until the write-up made one, so this is the first
+  // frame that can honestly call it a plan.
+  if (!announced) {
+    yield { type: "agreed", plan, runnerUp: plan.runnerUp, fairness };
+  }
+
+  yield { type: "done", fairness, reports, usage, elapsedMs, plan, runnerUp: plan.runnerUp };
 }

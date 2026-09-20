@@ -15,7 +15,8 @@
  * path, and the host corrects four drafts exactly as they would with a key.
  *
  * Frozen, like `FINAL_PLAN` next door: no randomness and no clock, so an
- * offline rehearsal is the same room every time.
+ * offline rehearsal is the same room every time. The four names are the cast's
+ * own, so an offline room reads the way the rest of the app already does.
  *
  * The message counts are 14/11/9/7 on purpose — four distinct numbers, so the
  * ranking that picks the top four has no tie to break and the seat order is
@@ -33,8 +34,8 @@ export const CHAT_PHOTO: ChatExtraction = {
   notes: [],
   people: [
     {
-      handle: "Maya",
-      displayName: "Maya",
+      handle: "Richard",
+      displayName: "Richard",
       messageCount: 14,
       isHost: true,
       want: "somewhere warm with a beach we can actually walk to",
@@ -49,8 +50,8 @@ export const CHAT_PHOTO: ChatExtraction = {
       duplicateOf: null,
     },
     {
-      handle: "Jordan",
-      displayName: "Jordan",
+      handle: "Angela",
+      displayName: "Angela",
       messageCount: 11,
       isHost: false,
       want: "good food and a city we can get around without renting a car",
@@ -65,8 +66,8 @@ export const CHAT_PHOTO: ChatExtraction = {
       duplicateOf: null,
     },
     {
-      handle: "Sam",
-      displayName: "Sam",
+      handle: "Will",
+      displayName: "Will",
       messageCount: 9,
       isHost: false,
       want: "a proper hotel, not a hostel, and a pool",
@@ -81,8 +82,8 @@ export const CHAT_PHOTO: ChatExtraction = {
       duplicateOf: null,
     },
     {
-      handle: "Priya",
-      displayName: "Priya",
+      handle: "Tsai",
+      displayName: "Tsai",
       messageCount: 7,
       isHost: false,
       want: "nothing at 6am, and one day where we do nothing at all",

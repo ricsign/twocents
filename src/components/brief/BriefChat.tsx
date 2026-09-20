@@ -6,7 +6,7 @@ import { agentName } from "@/lib/characters";
 import { Avatar } from "@/components/ui/Sprite";
 import { PixelButton } from "@/components/ui/PixelButton";
 import { LockIcon } from "@/components/ui/PixelIcons";
-import type { ChatMessage } from "./seed";
+import type { ChatMessage } from "./chatMessages";
 
 /**
  * The private briefing card: who you are talking to, what you have said so
@@ -199,3 +199,4 @@ function TypingDots() {
     </div>
   );
 }
+

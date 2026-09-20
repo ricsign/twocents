@@ -204,11 +204,10 @@ export function ItineraryScreen({ sessionId }: { sessionId?: string }) {
   const viewUrl = `/api/itinerary/pdf${query}${query ? "&" : "?"}v=${stamp}`;
   const downloadUrl = `/api/itinerary/pdf${query}${query ? "&" : "?"}download=1`;
 
-  const load = useCallback(async (signal: AbortSignal): Promise<void> => {
+  const load = useCallback(async (): Promise<void> => {
     // The cheap read first: a reload after the document exists should not
     // re-enter the build path at all.
-    const existing = await fetch(`/api/itinerary${query}`, { cache: "no-store", signal });
-    if (signal.aborted) return;
+    const existing = await fetch(`/api/itinerary${query}`, { cache: "no-store" });
 
     if (existing.ok) {
       const summary = summarise((await existing.json()) as ItineraryResponse);
@@ -225,9 +224,7 @@ export function ItineraryScreen({ sessionId }: { sessionId?: string }) {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(sessionId ? { sessionId } : {}),
-      signal,
     });
-    if (signal.aborted) return;
 
     if (res.status === 403) {
       const body = (await res.json()) as ItineraryResponse;
@@ -249,20 +246,29 @@ export function ItineraryScreen({ sessionId }: { sessionId?: string }) {
   }, [query, sessionId]);
 
   useEffect(() => {
-    // React runs effects twice in development; a second POST would mean a
-    // second web search for the same document.
+    // Runs exactly once, and nothing cancels it.
+    //
+    // It used to open an `AbortController` and abort it from the cleanup. In
+    // development React runs an effect, tears it down and runs it again on the
+    // same instance — so the cleanup aborted the only request in flight, and
+    // the `started` guard then made the second run return without starting
+    // another. The screen sat on "BUILDING YOUR ITINERARY" forever, having
+    // cancelled the one fetch it ever made and suppressed its own retry.
+    //
+    // There is nothing to cancel here anyway. The build is a single POST the
+    // server dedupes per session and caches on it, so abandoning it early
+    // wastes the search rather than saving it, and a `setStatus` that lands
+    // after a real unmount is a no-op in React 18 and later.
     if (started.current) return;
     started.current = true;
 
-    const controller = new AbortController();
     void (async () => {
       try {
-        await load(controller.signal);
+        await load();
       } catch {
-        if (!controller.signal.aborted) setStatus("error");
+        setStatus("error");
       }
     })();
-    return () => controller.abort();
   }, [load]);
 
   // The clock behind the bar. It is torn down the moment the build lands,

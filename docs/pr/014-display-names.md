@@ -5,7 +5,7 @@
 `/judges` let someone type four names, then stored them only inside
 `personality.bio`. Every visible label read the fixed cast from
 `characters.ts`, so a judge typed "Dana, Raj, Ben, Kim", hit START, and
-watched Maya and Jordan argue about their dinner. The closing beat of the
+watched Richard and Angela argue about their dinner. The closing beat of the
 demo is a judge seeing *their own party* in the room, and it didn't land.
 
 ## The fix
@@ -25,8 +25,8 @@ avoiding: that pattern would have ended up in a dozen components and drifted.
 
 Names flow through the session view (so the client gets names without getting
 briefs), the offline scenario generator, the public prompts and each private
-report — an agent now addresses "Dana", not "Maya". Sprites, colours and ids
-are untouched; Maya's seat is still the coral one.
+report — an agent now addresses "Dana", not "Richard". Sprites, colours and ids
+are untouched; Richard's seat is still the coral one.
 
 ## Also: "1 nights"
 
@@ -41,8 +41,8 @@ reads `Mar 14–19 · 5 nights` and the same four fairness rows.
 
 Judges run (Dana / Raj / Ben / Kim, "Dinner tonight"): `/town` reads
 `DANA · YOU RAJ BEN KIM`, the plan reads `Tonight, 7pm · $18 a person`, and
-grepping the rendered HTML of both pages for `Maya`, `Jordan`, `Sam` and
-`Priya` returns **zero hits each**, including in `alt` attributes. No ceiling
+grepping the rendered HTML of both pages for `Richard`, `Angela`, `Will` and
+`Tsai` returns **zero hits each**, including in `alt` attributes. No ceiling
 figure appears in the visible text of either page.
 
 `tsc`, `eslint src`, `next build` clean. All four check suites pass:

@@ -21,7 +21,7 @@
  * The assertions are deliberately made against `JSON.stringify` of the view
  * rather than against its fields. A field-by-field check proves the fields you
  * remembered to check; the serialized form is what actually goes down the wire,
- * so searching *it* for Sam's 1400 catches a leak through a field nobody thought
+ * so searching *it* for Will's 1400 catches a leak through a field nobody thought
  * about — a note copied into a mandate, a transcript riding along inside a
  * report, a `privateReasonKept` on someone else's turn.
  *
@@ -33,7 +33,7 @@
 
 import assert from "node:assert/strict";
 import { PARTICIPANT_IDS, type ParticipantId } from "@/lib/characters";
-import { createSeedSession } from "@/lib/seed";
+import { SAMPLE_BRIEF, createSeedSession } from "@/lib/seed";
 import { eventForViewer, sessionViewFor, sessionViewSchema } from "@/lib/session-view";
 import { negotiationEventSchema } from "@/lib/types";
 import type {
@@ -45,12 +45,6 @@ import type {
   Offer,
   Plan,
 } from "@/lib/types";
-
-// The scripted seed, explicitly. Maya's brief is empty by default now — the
-// briefing screen is hers to fill in — and these checks are about the scripted
-// demo, where she is already briefed. Set before any session is built, because
-// `seedBriefs()` reads it at call time.
-process.env.TWOCENTS_SEED_BRIEF_CHAT = "1";
 
 
 /* -------------------------------------------------------------------------- */
@@ -136,6 +130,10 @@ function turnFor(participantId: ParticipantId, index: number): NegotiationTurn {
  */
 function finishedSession(): DemoSession {
   const session = createSeedSession("check-session");
+  // The seat in front of the screen starts blank, so it has no ceiling to hunt
+  // for until somebody briefs it. `SAMPLE_BRIEF` is the brief the demo applies
+  // in one tap, and it carries the $600 these checks are written around.
+  session.participants.maya.brief = { ...SAMPLE_BRIEF };
   const reports = {} as Record<ParticipantId, AgentReport>;
 
   for (const id of PARTICIPANT_IDS) {
@@ -307,13 +305,14 @@ check("sam's view contains maya's public wants but not her number", () => {
   const view = sessionViewFor(SESSION, "sam");
   const maya = view.others.find((o) => o.participantId === "maya");
   assert.ok(maya, "maya should appear as one of the others");
-  assert.equal(maya.name, "Maya");
+  assert.equal(maya.name, "Richard");
   assert.ok(maya.mandate.wants.includes("A beach every day"));
   assert.equal(wire("sam").includes("600"), false);
 });
 
 check("an unfinished session narrows without throwing", () => {
   const fresh = createSeedSession("fresh");
+  // Tsai, not the demo user: hers is the seat the seed still fills.
   const view = sessionViewFor(fresh, "priya");
   assert.equal(view.plan, null);
   assert.equal(view.fairness, null);
@@ -372,7 +371,30 @@ const PUBLIC_EVENTS: NegotiationEvent[] = [
   { type: "round", round: 1, of: 5 },
   { type: "thinking", speaker: "jordan" },
   { type: "offer", speaker: "maya", offer: OFFER },
-  { type: "agreed", plan: PLAN, runnerUp: null },
+  // The price check's verdict, as of PR #26: the check now runs beside the
+  // negotiation and its answer arrives on its own frame. It is about an
+  // option that was said out loud and was built from an `Offer`, never a
+  // `Brief`, so it crosses the wire whole.
+  {
+    type: "offer-checked",
+    offerId: OFFER.id,
+    feasibility: {
+      bookable: true,
+      realisticPerPerson: 560,
+      note: "Flights run about $340 and a bed about $44 a night.",
+      sources: ["kayak.com"],
+      links: [{ title: "Flights to San Juan", url: "https://kayak.com/flights", host: "kayak.com" }],
+    },
+    sourced: {
+      note: "A quick web search shows: Flights run about $340 and a bed about $44 a night.",
+      links: [{ title: "Flights to San Juan", url: "https://kayak.com/flights", host: "kayak.com" }],
+    },
+  },
+  // Carries the fairness meter as of PR #24: the frame is emitted the instant
+  // the room settles, and the plan screen needs both halves before it renders.
+  // The rows name no ceiling and every viewer sees the same meter, so this
+  // frame still has to come through the narrowing untouched.
+  { type: "agreed", plan: PLAN, runnerUp: null, fairness: FAIRNESS },
 ];
 
 function wireEvent(event: NegotiationEvent, viewer: ParticipantId): string {

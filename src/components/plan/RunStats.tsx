@@ -17,7 +17,11 @@
  *
  * When the run was offline — no key, or the network went — there are no tokens
  * to price and the strip says so rather than printing a $0.00 that reads like
- * a claim. The round still happened; it just was not billed.
+ * a claim. The round still happened; it just was not billed. And while the run
+ * is still going there is nothing to say either way yet, which is its own
+ * state: the plan lands five model calls before the tally does, and a panel
+ * that reads an empty tally as "offline" tells a judge there is no key while
+ * the run is spending money.
  *
  * Deliberately quiet: three-px border, muted labels, and it sits under the
  * fairness meter. The private report is what a judge should be reading.
@@ -66,6 +70,32 @@ function formatUsd(n: number): string {
 }
 
 /* -------------------------------------------------------------------------- */
+/* What the strip may claim yet                                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The three honest things this panel can say about money.
+ *
+ * `usage` reaches the screen on the run's last frame — the route writes the
+ * tally beside the four private reports — while the plan arrives five
+ * model calls earlier, the instant the room settles. So an empty tally has
+ * two meanings and they are opposites: nothing was billed, or nothing has
+ * been counted yet. The panel used to read the first one off both and tell a
+ * judge there was no API key while a live run was spending money three feet
+ * away.
+ *
+ * `calls` is what separates them, because a finished run has made at least
+ * one call whatever that call cost. `running` is the same window the report
+ * card fills with STILL WRITING, and it ends on the same frame.
+ */
+type CostState = "running" | "offline" | "billed";
+
+function costStateOf(usage: Usage): CostState {
+  if (usage.calls === 0) return "running";
+  return usage.inputTokens + usage.outputTokens === 0 ? "offline" : "billed";
+}
+
+/* -------------------------------------------------------------------------- */
 /* Cells                                                                       */
 /* -------------------------------------------------------------------------- */
 
@@ -106,6 +136,12 @@ function Cell({
  * `router.refresh()` before the push is not decoration. Every screen here
  * renders the session on the server, so the router's cached payload for the
  * page we are leaving would otherwise still describe the run that just ended.
+ * It is the same pair of calls the town's RESET DEMO makes on its way to
+ * `/brief` and the judges' START makes on its way to `/town`: clear the
+ * session, drop the cache, land somewhere the new session can actually
+ * render. Only the destination differs, and it differs because the two resets
+ * are pointed at different entrances — this one at the judges' round, the
+ * town's at step 1 of the demo.
  */
 function ResetRun({ sessionId }: { sessionId?: string }) {
   const router = useRouter();
@@ -158,10 +194,7 @@ export function RunStats({
   agreedInMs: number;
   sessionId?: string;
 }) {
-  const tokens = usage.inputTokens + usage.outputTokens;
-  // A live call always reports tokens, so zero of them means the scripted run
-  // answered every call. Nothing was sent and nothing was billed.
-  const offline = tokens === 0;
+  const state = costStateOf(usage);
 
   // The honest comparison: this run's own token counts, every call priced at
   // the large model's rate instead of the tier the task was routed to.
@@ -191,7 +224,7 @@ export function RunStats({
         label="MODEL CALLS"
         value={String(usage.calls)}
         note={
-          offline
+          state === "offline"
             ? "scripted run, nothing sent"
             : `${formatTokens(usage.inputTokens)} in / ${formatTokens(usage.outputTokens)} out`
         }
@@ -200,20 +233,30 @@ export function RunStats({
 
       <Cell
         label="COST"
-        value={offline ? "NOT BILLED" : formatUsd(usage.estimatedCostUsd)}
+        value={
+          state === "running"
+            ? "STILL RUNNING"
+            : state === "offline"
+              ? "NOT BILLED"
+              : formatUsd(usage.estimatedCostUsd)
+        }
         note={
-          offline
-            ? "offline fallback — no key, no tokens, no charge"
-            : `one model for every call: ${formatUsd(oneModelCost)}${
-                savedPct > 0 ? ` (${savedPct}% more)` : ""
-              }`
+          state === "running"
+            ? "the agents are still working — the bill lands with the last report"
+            : state === "offline"
+              ? "offline fallback — no key, no tokens, no charge"
+              : `one model for every call: ${formatUsd(oneModelCost)}${
+                  savedPct > 0 ? ` (${savedPct}% more)` : ""
+                }`
         }
       />
 
       <p className="m-0 max-w-[280px] text-[12px] leading-snug font-semibold text-bark min-[1100px]:ml-auto">
-        {offline
-          ? "Banter runs on the small model and only the plan and the four private reports run on the large one. With a key set, the split is priced here."
-          : `Banter on the small model at $${PRICING.fast.inputPerMTok}/$${PRICING.fast.outputPerMTok} per Mtok; the plan and the four reports on the large one at $${PRICING.smart.inputPerMTok}/$${PRICING.smart.outputPerMTok}.`}
+        {state === "running"
+          ? "Banter runs on the small model and only the plan and the four private reports run on the large one. The split is priced here as soon as the run finishes."
+          : state === "offline"
+            ? "Banter runs on the small model and only the plan and the four private reports run on the large one. With a key set, the split is priced here."
+            : `Banter on the small model at $${PRICING.fast.inputPerMTok}/$${PRICING.fast.outputPerMTok} per Mtok; the plan and the four reports on the large one at $${PRICING.smart.inputPerMTok}/$${PRICING.smart.outputPerMTok}.`}
       </p>
 
       <ResetRun sessionId={sessionId} />

@@ -8,7 +8,8 @@
  * turns four people's wants into four ticks.
  */
 
-import type { Plan } from "@/lib/types";
+import { GAVE_UP_BUDGET } from "@/lib/negotiation/fairness";
+import type { FairnessReport, Plan } from "@/lib/types";
 
 /** "$2,160" — grouped, no cents. Every figure on this screen is whole dollars. */
 function money(value: number): string {
@@ -38,6 +39,46 @@ function nightsClause(nights: number | null): string | null {
 }
 
 /**
+ * Sentence-leading count words. The table is four people, so the list ends
+ * there and the digit fallback is a thing nobody should ever see.
+ */
+const COUNT_WORDS: readonly string[] = ["Nobody", "One", "Two", "Three", "Four"];
+
+function countWord(n: number): string {
+  return COUNT_WORDS[n] ?? String(n);
+}
+
+/**
+ * The money line, earned from the meter rather than asserted over it.
+ *
+ * "Inside everyone’s real budget" is the sentence the whole product is
+ * selling, and it used to be fixed prose — printed word for word above a
+ * fairness meter reading "gave up staying under budget" on three of its four
+ * bars. So it is now read off the same report those bars are drawn from:
+ * `scoreFairness` ranks a broken ceiling above every other loss, so a row
+ * carrying `GAVE_UP_BUDGET` is a person this plan priced out, and no such row
+ * means the plan really does clear all four.
+ *
+ * When it does not, the line says how many and stops there. Not who, because
+ * the meter directly below names them once already, and never how much,
+ * because a ceiling is the one figure this screen — the one all four of them
+ * read at the same time — may never carry.
+ */
+function budgetLine(plan: Plan, fairness: FairnessReport): string {
+  const total = money(plan.groupTotal);
+
+  // No rows is not "nobody went over", it is "nobody was scored" — the meter
+  // below is empty in the same breath. Print the total and claim nothing.
+  if (fairness.rows.length === 0) return `${total} for the group.`;
+
+  const over = fairness.rows.filter((row) => row.gaveUp === GAVE_UP_BUDGET).length;
+  if (over === 0) return `${total} for the group, inside everyone’s real budget.`;
+
+  const who = over === 1 ? "One of them is" : `${countWord(over)} of them are`;
+  return `${total} for the group. ${who} over the number they gave their agent in private.`;
+}
+
+/**
  * The runner-up, said once.
  *
  * The reason a runner-up lost usually names it and its price all over again
@@ -55,7 +96,14 @@ function runnerUpLine(plan: Plan): string | null {
   return `${headline}, ${lowerFirst(because)}`;
 }
 
-export function PlanHeadline({ plan }: { plan: Plan }) {
+export function PlanHeadline({
+  plan,
+  fairness,
+}: {
+  plan: Plan;
+  /** The same report the meter below renders. The budget line is read off it. */
+  fairness: FairnessReport;
+}) {
   const { offer } = plan;
   const runnerUp = runnerUpLine(plan);
   const nights = nightsClause(offer.nights);
@@ -96,7 +144,7 @@ export function PlanHeadline({ plan }: { plan: Plan }) {
         </p>
 
         <p className="m-0 text-[16px] leading-relaxed font-semibold text-bark">
-          {money(plan.groupTotal)} for the group, inside everyone’s real budget.
+          {budgetLine(plan, fairness)}
           {runnerUp ? (
             <>
               <br />

@@ -3,14 +3,23 @@
 /**
  * Step 3, assembled: the room on the left, the record on the right.
  *
- * The negotiation starts on mount because the screen has one job and there is
- * no state in which an empty room is the right thing to show a judge.
+ * The negotiation used to start on mount unconditionally, which was right
+ * exactly once — the first time anybody reached this screen. Every remount
+ * after that, and browser-back from `/plan` is the common one, opened a second
+ * stream that overwrote the session's plan, fairness report and private
+ * reports with a different outcome; the judge then went forward again and read
+ * a plan that no longer matched the one they had just approved.
+ *
+ * So the run auto-starts only when there is nothing to show. An edit to a brief
+ * or a slider already clears the plan, so arriving here after briefing, or
+ * after the personality flip, still runs itself — that beat is untouched. What
+ * changed is that arriving at a finished run now paints it and stops.
  */
 
 import { useEffect } from "react";
 import type { DisplayNames, ParticipantId } from "@/lib/characters";
 import { PixelLink } from "@/components/ui/PixelButton";
-import { useNegotiation } from "@/hooks/useNegotiation";
+import { useNegotiation, type FinishedRun } from "@/hooks/useNegotiation";
 import { useRoomTurns } from "./useRoomTurns";
 import { Room } from "./Room";
 import { TownControls } from "./TownControls";
@@ -21,9 +30,12 @@ export function TownScreen({
   sessionId,
   you,
   canRun = true,
+  finished = null,
 }: {
   names?: DisplayNames;
   sessionId?: string;
+  /** The run the session is already holding, narrowed for this viewer. */
+  finished?: FinishedRun | null;
   /** Whose screen this is. Only used to label their own seat in the room. */
   you?: ParticipantId;
   /**
@@ -41,15 +53,21 @@ export function TownScreen({
    */
   canRun?: boolean;
 }) {
-  const negotiation = useNegotiation(sessionId);
+  const negotiation = useNegotiation({ sessionId, finished });
   const { start, status } = negotiation;
 
+  // Depends on the boolean rather than the object: a server render hands over
+  // a new `finished` every time, and re-running this effect on identity alone
+  // would restart a stream that is halfway through.
+  const alreadyRun = finished !== null;
+
   useEffect(() => {
-    if (canRun) start();
-  }, [canRun, start]);
+    if (alreadyRun || !canRun) return;
+    start();
+  }, [alreadyRun, canRun, start]);
 
   // Only polls when this browser is not the one running the stream.
-  const watched = useRoomTurns(canRun ? null : sessionId ?? "");
+  const watched = useRoomTurns(canRun ? null : (sessionId ?? ""));
 
   const paused = status === "paused";
   const turns = canRun ? negotiation.turns : watched.turns;
@@ -73,12 +91,20 @@ export function TownScreen({
             <TownControls
               paused={paused}
               speed={negotiation.speed}
-              disabled={status === "idle"}
+              // Nothing to pause or re-pace before a run starts, and nothing to
+              // pause or re-pace on a finished one that was painted rather than
+              // streamed. Speed is applied by restarting the stream, which a
+              // replayed run has none of, so the buttons dim with the pause.
+              disabled={status === "idle" || status === "done"}
               onTogglePause={paused ? negotiation.resume : negotiation.pause}
               onSpeed={negotiation.setSpeed}
+              onRerun={negotiation.rerun}
               onReset={negotiation.reset}
             />
           ) : (
+            // A spectator has nothing to pause: the pace belongs to the
+            // browser running it, and rerun and reset are the host's to press
+            // because both throw away what everyone else is watching.
             <p className="disp text-[8px] leading-relaxed text-bark">
               {watched.live
                 ? "THE AGENTS ARE TALKING…"

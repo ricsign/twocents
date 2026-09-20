@@ -107,6 +107,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const session = seedRoom({ sessionId: DEFAULT_SESSION_ID, topic, when, seats: people });
+
   if (!session) {
     return Response.json({ error: "could not seed the session" }, { status: 500 });
   }

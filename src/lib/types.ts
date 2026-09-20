@@ -132,6 +132,16 @@ export function describePersonality(p: Personality): string {
 export const briefMessageSchema = z.object({
   role: z.enum(["agent", "human"]),
   text: z.string(),
+  /**
+   * The badge under an agent line: "Kept private: $600 budget".
+   *
+   * Stored on the message rather than recomputed on render because the label
+   * belongs to the turn that earned it. A reload that re-derived it from the
+   * finished brief would stamp it on every agent line at once, and the moment
+   * the demo is selling is the one line where the agent says it will sit on
+   * the number.
+   */
+  keptPrivate: z.string().optional(),
 });
 
 /** A single turn of the briefing conversation. */
@@ -544,6 +554,10 @@ export const negotiationTurnSchema = z.object({
    * against the live web, and rendered in the transcript as a sentence plus the
    * pages behind it. An agent that says "a quick web search shows" and cannot
    * show you the search is exactly the thing this product is arguing against.
+   *
+   * Written when the check lands rather than when the line is spoken: the
+   * engine does not hold the room for a web search, so this field appears on
+   * a turn that already exists, carried by an `offer-checked` frame.
    */
   sourced: negotiationSourcedSchema.optional(),
 });
@@ -713,8 +727,6 @@ export const negotiationEventSchema = z.discriminatedUnion("type", [
     kind: turnKindSchema,
     text: z.string(),
     privateReasonKept: z.string().optional(),
-    /** The live search behind this line, when there was one. */
-    sourced: negotiationSourcedSchema.optional(),
   }),
   /** A new option hit the table; the UI slides in an offer card. */
   z.object({
@@ -722,11 +734,51 @@ export const negotiationEventSchema = z.discriminatedUnion("type", [
     speaker: participantIdSchema,
     offer: offerSchema,
   }),
-  /** Consensus. The Town screen starts its transition to the plan. */
+  /**
+   * The web's verdict on an option that is already on the table.
+   *
+   * A patch, not a new row. The offer frame above is emitted the moment the
+   * agent proposes, without waiting for the price check, because a room that
+   * freezes for the length of two web searches every time somebody names a
+   * number is a room nobody watches. The verdict follows whenever it lands and
+   * the card it belongs to fills in — which is why this carries an `offerId`
+   * rather than a speaker: the consumer's job is to find that offer and patch
+   * it, not to append anything.
+   *
+   * `sourced` is the same sentence-plus-links block a turn carries, built here
+   * so the transcript row and the card cannot come apart; absent when the
+   * check opened no pages, which is what stops an unchecked offer from
+   * claiming a search.
+   */
+  z.object({
+    type: z.literal("offer-checked"),
+    offerId: z.string(),
+    feasibility: offerFeasibilitySchema,
+    sourced: negotiationSourcedSchema.optional(),
+  }),
+  /**
+   * Consensus. The Town screen starts its transition to the plan.
+   *
+   * Emitted the instant the round loop settles, from the offer it settled on,
+   * before any of the finalisation calls have run. The plan on it is therefore
+   * the offer itself rather than the written-up version: the same trip, the
+   * same price, without the prose. `done` carries the finished one.
+   */
   z.object({
     type: z.literal("agreed"),
     plan: planSchema,
     runnerUp: offerSchema.nullable(),
+    /**
+     * The meter, scored at the same instant.
+     *
+     * Carried on this frame because the plan screen renders only when it has
+     * a plan *and* a fairness report, and scoring is local arithmetic that
+     * costs nothing to do here. Without it the screen would hold the plan and
+     * still show nothing until `done` landed, which is the wait this frame
+     * exists to end. Public, like the rest of this frame: the same rows go to
+     * all four people on the shared plan screen.
+     */
+    fairness: fairnessReportSchema,
   }),
   /** Terminal frame: everything the plan screen needs, in one payload. */
   z.object({
@@ -743,6 +795,16 @@ export const negotiationEventSchema = z.discriminatedUnion("type", [
     reports: z.partialRecord(participantIdSchema, agentReportSchema),
     usage: usageSchema,
     elapsedMs: z.number(),
+    /**
+     * The written-up plan, replacing the provisional one from `agreed`.
+     *
+     * Same offer — the engine pins it to what the room converged on — with the
+     * runner-up, the sentence saying why it lost and the kept wants the model
+     * wrote. Optional because a run that produced no plan at all still ends in
+     * this frame.
+     */
+    plan: planSchema.optional(),
+    runnerUp: offerSchema.nullable().optional(),
   }),
 ]);
 
@@ -867,8 +929,8 @@ export const participantStateSchema = z.object({
   /**
    * What this person is called, when they are not the cast member in the seat.
    *
-   * Absent on the seeded grad trip, which is why that run still reads Maya /
-   * Jordan / Sam / Priya everywhere. The judges' round sets it to the name a
+   * Absent on the seeded grad trip, which is why that run still reads Richard /
+   * Angela / Will / Tsai everywhere. The judges' round sets it to the name a
    * judge typed, and `displayNameFor` is the only thing that reads it.
    */
   displayName: z.string().optional(),
@@ -952,31 +1014,19 @@ export const demoSessionSchema = z.object({
    * this, and everyone else's next poll sees it and follows.
    */
   runStartedAt: z.number().nullable().default(null),
+  /**
+   * True only while this session is still the untouched seeded script.
+   *
+   * The offline provider may replay its canned grad-trip transcript only then.
+   * The first edit to any brief or personality clears it, because the moment a
+   * human changes what their agent knows, a hand-written transcript stops being
+   * a recording of this room and becomes a lie about it.
+   */
+  scripted: z.boolean(),
 });
 
 /** The whole demo state. */
 export type DemoSession = z.infer<typeof demoSessionSchema>;
-
-/**
- * Has this person actually told their agent anything?
- *
- * Read off the brief rather than off a list of names, because the roster has to
- * be true for a judges' round and for a run somebody is halfway through, not
- * only for the scripted one. A seeded friend has wants from the first frame; a
- * person who has said nothing yet has none.
- *
- * Lives here rather than beside one of its callers because the briefing roster
- * and the lobby both draw a "has briefed" tick, and two definitions of that
- * would disagree at the worst possible moment.
- */
-export function hasBriefed(brief: Brief | undefined): boolean {
-  if (!brief) return false;
-  return (
-    brief.wants.length > 0 ||
-    brief.budgetCeiling !== null ||
-    brief.destinationWant.trim().length > 0
-  );
-}
 
 /**
  * The name overrides this session carries, gathered into one map.

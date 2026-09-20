@@ -2,7 +2,7 @@
  * The demo's starting state.
  *
  * The script in the project spec opens with three agents already briefed and
- * Maya's left empty, so the first thing a judge watches is a human briefing an
+ * Richard's left empty, so the first thing a judge watches is a human briefing an
  * agent live. Everything here is therefore written to be *read out loud*: the
  * briefs carry the texture of four people who each want something different and
  * exactly one of whom has to give up the thing they came in for.
@@ -10,22 +10,25 @@
  * Two constraints shaped the numbers below, and changing either will move the
  * plan screen:
  *
- * - **The ceilings decide the outcome.** Maya's $600 is the lowest and it is
- *   private, so the room can only ever land somewhere under it without anyone
- *   saying why. Sam's $1,400 is the highest, which is why his agent opens with
- *   the expensive option and why he is the one who ends up trading it away.
+ * - **The ceilings decide the outcome.** The $600 in `SAMPLE_BRIEF` is the
+ *   lowest and it is private, so the room can only ever land somewhere under it
+ *   without anyone saying why. Will's $1,400 is the highest, which is why his
+ *   agent opens with the expensive option and why he is the one who ends up
+ *   trading it away. The seated version of that person starts blank, so a run
+ *   made before they say anything is a three-ceiling room, not a broken one.
  * - **Four stated wants plus the private ceiling is what the meter counts.**
  *   `scoreFairness` appends a row for the budget whenever a brief carries one,
  *   so four wants is what makes the fairness bars read "n of 5" the way
  *   `design/04-plan.clean.html` prints them. The fifth want is the one nobody
  *   types into a group chat.
  *
- * One person is deliberately *not* seeded. Maya is whoever is sitting in front
- * of the screen, so her agent starts with an empty brief and an empty
- * transcript and learns everything from the conversation she actually has with
- * it. The scripted version of that conversation is still here, behind
- * `TWOCENTS_SEED_BRIEF_CHAT=1`, for rehearsing the demo. The other three stay
- * seeded because there is no sign-in yet and nobody is there to brief them.
+ * One person is deliberately *not* seeded. The `YOU` seat belongs to whoever
+ * is sitting in front of the screen, so that agent starts with an empty brief
+ * and an empty transcript and learns everything from the conversation it
+ * actually has. `SAMPLE_BRIEF` below is the same content the seat used to ship
+ * with, kept as the one-tap shortcut the briefing screen offers a demo that
+ * has no time to type. The other three stay seeded because there is no sign-in
+ * yet and nobody is there to brief them.
  *
  * Server-only. No React, no DOM.
  */
@@ -62,45 +65,18 @@ export const TRIP_NAME = "Grad Trip ’27";
 export const SEED_SCENARIO_ID = "seed-grad-trip";
 
 /**
- * Whether Maya's briefing chat starts already half-had.
+ * True for a session that is still the untouched seeded script.
  *
- * Off by default: a person opening `/brief` gets an agent that asks them what
- * they want, and every field on the "YOUR AGENT KNOWS" panel is filled by what
- * they answer rather than pre-filled with somebody else's trip. Set
- * `TWOCENTS_SEED_BRIEF_CHAT=1` to open mid-conversation instead, which is the
- * 0:15 beat of the scripted demo.
- *
- * Read at call time rather than at import, so flipping it takes effect on the
- * next RESET instead of the next restart.
+ * It reads one field, `scripted`, because the question is not "does this look
+ * like the seed" but "has anybody changed what these agents know". The trip
+ * name used to stand in for that and could not answer it: the main flow never
+ * touches the trip name, so a session whose briefs the user had rewritten
+ * line by line still fingerprinted as the script and still got the canned
+ * Cancun transcript read over it. Every write that edits a brief or a
+ * personality now clears the flag instead.
  */
-export function seededBriefChatEnabled(): boolean {
-  return process.env.TWOCENTS_SEED_BRIEF_CHAT === "1";
-}
-
-/**
- * The agent's first line, and the only thing on screen before the person types.
- *
- * It is a question, not a greeting: the whole screen is one conversation whose
- * job is to get three things out of a person (where, when, and the number), and
- * an agent that opens with "hello" wastes the first turn on nothing. Stored
- * rather than generated so the screen paints instantly and says the same thing
- * with or without a key.
- */
-export const BRIEF_OPENING_LINE =
-  "Before I go plan this with the others: where do you want to go, when, and what’s the real number?";
-
-/**
- * True for a session that came out of `createSeedSession`, including after a
- * RESET.
- *
- * The trip name is the whole test, and deliberately so. It is the one field the
- * seeded demo never edits — the briefing screen rewrites Maya's brief live at
- * 0:15 of the script, so a fingerprint taken over the briefs would stop matching
- * exactly when the demo is most exposed — while `/api/judges` always replaces it
- * with the judge's own topic.
- */
-export function isSeedScenario(session: Pick<DemoSession, "tripName">): boolean {
-  return session.tripName.trim() === TRIP_NAME;
+export function isSeedScenario(session: Pick<DemoSession, "scripted">): boolean {
+  return session.scripted;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -112,7 +88,7 @@ export function isSeedScenario(session: Pick<DemoSession, "tripName">): boolean 
  *
  * These are the values the "personality flip" beat starts from: the demo drags
  * one agent from easygoing to stubborn and reruns, so the interesting positions
- * are the ones with room to move. Priya sits low on stubborn on purpose — she
+ * are the ones with room to move. Tsai sits low on stubborn on purpose — she
  * is the agent a judge can flip and visibly change the outcome.
  */
 export const SEED_PERSONALITIES: Record<ParticipantId, Personality> = {
@@ -156,7 +132,7 @@ function line(role: BriefMessage["role"], text: string): BriefMessage {
 }
 
 /**
- * Sam wants the resort and has the room to pay for it.
+ * Will wants the resort and has the room to pay for it.
  *
  * He is the engine's opener (his price stance is the highest in the room, so
  * `SPEAKING_ORDER` puts the expensive option on the table first) and he is the
@@ -193,10 +169,10 @@ const SAM_BRIEF: Brief = {
 };
 
 /**
- * Jordan's hill is the catamaran day.
+ * Angela's hill is the catamaran day.
  *
  * Stubborn and blunt, mid budget: his agent is the one that refuses to trade the
- * boat day, which is what forces Sam's agent to trade the resort instead. That
+ * boat day, which is what forces Will's agent to trade the resort instead. That
  * chain is the whole negotiation, so the catamaran is his first want and it has
  * to be a want the plan can actually satisfy.
  */
@@ -224,7 +200,7 @@ const JORDAN_BRIEF: Brief = {
 };
 
 /**
- * Priya is the flexible one, which is what makes the plan possible.
+ * Tsai is the flexible one, which is what makes the plan possible.
  *
  * Everything she asked for is satisfied by Puerto Rico on its own — no passport,
  * no early flight, a beach every day — so her agent spends its turns backing
@@ -258,16 +234,13 @@ const PRIYA_BRIEF: Brief = {
 };
 
 /**
- * Maya, before she has said anything.
+ * The person in front of the screen starts with nothing said.
  *
- * This is the default, and it is what makes the product the product: nothing on
- * the briefing screen is true until the person says it. Every field is empty
- * and the agent fills them in from the conversation, which is also what makes
- * the fairness meter honest — a person with two wants gets two bars, not five
- * belonging to somebody else.
- *
- * `budgetIsPrivate` starts true because the default for a number nobody has
- * named yet has to be the safe one.
+ * Every field is blank, and that is the point of the screen: at 0:15 of the
+ * script a judge watches a human tell an agent something and watches the panel
+ * fill in. A pre-populated seat would have the panel already naming a
+ * destination, a date range, a $600 ceiling and four wants that nobody in the
+ * room had typed, which reads as a mock rather than a product.
  */
 export function blankBrief(participantId: ParticipantId): Brief {
   return {
@@ -276,6 +249,8 @@ export function blankBrief(participantId: ParticipantId): Brief {
     dates: "",
     nights: null,
     budgetCeiling: null,
+    // True from the start: a number is private until its owner says otherwise,
+    // never the other way round.
     budgetIsPrivate: true,
     dealbreakers: [],
     wants: [],
@@ -284,36 +259,43 @@ export function blankBrief(participantId: ParticipantId): Brief {
   };
 }
 
-const MAYA_BLANK_BRIEF: Brief = blankBrief("maya");
-
 /**
- * The conversation the scripted demo opens mid-way through.
+ * The briefing chat this brief came out of, as four lines.
  *
- * Only used when `seededBriefChatEnabled()` holds. It is the 0:15 beat: the
- * number is already given, the agent has already promised to sit on it, and the
- * kept-secret badge is on screen in the first frame.
+ * Written rather than generated so the one-click sample lands the kept-secret
+ * beat exactly: the human names the number and asks for it to be sat on, and
+ * the agent answers with what the room will hear instead.
  */
-export const MAYA_SEED_TRANSCRIPT: BriefMessage[] = [
-  line("agent", BRIEF_OPENING_LINE),
+export const SAMPLE_TRANSCRIPT: BriefMessage[] = [
+  line(
+    "agent",
+    "Before I go argue with the others: where do you want to go, when, and what’s the real number?",
+  ),
   line(
     "human",
     "Somewhere warm, March 14–19. I can do $600 max. Please don’t tell them that.",
   ),
-  line(
-    "agent",
-    "Locked. They’ll hear “Cancun is a stretch,” never “$600.” I’ll trade away the nicer hotel before I let the number slip.",
-  ),
+  {
+    ...line(
+      "agent",
+      "Locked. They’ll hear “Cancun is a stretch,” never “$600.” I’ll trade away the nicer hotel before I let the number slip.",
+    ),
+    keptPrivate: "$600 budget",
+  },
   line("human", "Also, no flights before 8am."),
 ];
 
 /**
- * Maya as the scripted demo knows her.
+ * The briefing a demo can apply in one tap instead of typing it.
  *
- * The payoff of the seeded run — a $600 ceiling marked private, a dealbreaker
- * about early flights, and four wants of which exactly one (the hotel) is the
- * thing her agent trades away to protect the number it will never say.
+ * This is the content the seeded seat used to ship with, and it is still what
+ * the rest of the demo is tuned against: a $600 ceiling marked private, a
+ * dealbreaker about early flights, and four wants of which exactly one (the
+ * hotel) is the thing this agent trades away to protect the number it will
+ * never say. It is a shortcut now, not a starting state, so the panel only
+ * ever shows it after somebody chose it.
  */
-const MAYA_SCRIPTED_BRIEF: Brief = {
+export const SAMPLE_BRIEF: Brief = {
   participantId: "maya",
   destinationWant: "Somewhere warm with a beach",
   dates: TRIP_DATES,
@@ -328,23 +310,16 @@ const MAYA_SCRIPTED_BRIEF: Brief = {
     "A hotel with a pool",
   ],
   notes: ["private: money is tight until the job starts in June"],
-  rawTranscript: MAYA_SEED_TRANSCRIPT,
+  rawTranscript: SAMPLE_TRANSCRIPT,
 };
 
-/**
- * The four briefs, keyed the way every other module addresses them.
- *
- * A function rather than a constant because Maya's depends on a flag that is
- * read at call time; the other three are the same object every run.
- */
-export function seedBriefs(): Record<ParticipantId, Brief> {
-  return {
-    maya: seededBriefChatEnabled() ? MAYA_SCRIPTED_BRIEF : MAYA_BLANK_BRIEF,
-    jordan: JORDAN_BRIEF,
-    sam: SAM_BRIEF,
-    priya: PRIYA_BRIEF,
-  };
-}
+/** The four briefs, keyed the way every other module addresses them. */
+export const SEED_BRIEFS: Record<ParticipantId, Brief> = {
+  maya: blankBrief("maya"),
+  jordan: JORDAN_BRIEF,
+  sam: SAM_BRIEF,
+  priya: PRIYA_BRIEF,
+};
 
 /* -------------------------------------------------------------------------- */
 /* createSeedSession                                                           */
@@ -380,7 +355,7 @@ function newId(): string {
  * rather than to drift in the seed.
  */
 export function createSeedSession(id?: string): DemoSession {
-  const briefs = seedBriefs();
+  const briefs = SEED_BRIEFS;
   const participants = {} as Record<ParticipantId, ParticipantState>;
   for (const participantId of PARTICIPANT_IDS) {
     participants[participantId] = {
@@ -407,5 +382,8 @@ export function createSeedSession(id?: string): DemoSession {
     startedAt: Date.now(),
     hostSeat: null,
     runStartedAt: null,
+    // Nothing has been edited yet, so the offline provider may still replay the
+    // hand-written grad-trip script. The first brief or slider clears this.
+    scripted: true,
   };
 }

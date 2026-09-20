@@ -21,11 +21,51 @@
 import { z } from "zod";
 import type { Plan } from "@/lib/types";
 
-/** How many searches one itinerary is worth: flights, beds, and a day or two. */
-export const ITINERARY_MAX_SEARCHES = 8;
+/**
+ * How many searches one itinerary is worth.
+ *
+ * Five, down from eight. Eight was one per day plus flights and beds, which
+ * reads the rules below as if each day were an independent lookup. It is not:
+ * the days share one destination, and the three things the rules actually
+ * require the model to look up are the flight (with its departure, landing and
+ * return times), the bed (with its check-in), and real named places with their
+ * posted hours. The last of those is a destination-level question — "what is
+ * open in San Juan and when" — that the same results answer for Tuesday and
+ * for Friday. Two structural searches plus three on the place covers it.
+ *
+ * Each of these is a server-side round trip of seconds inside the one call,
+ * and this call is the "BUILDING YOUR ITINERARY" progress bar somebody is
+ * watching, so three fewer is the single largest saving available here.
+ *
+ * The floor is set by a rule, not by taste: the model is told to leave
+ * `opensAt`/`closesAt` empty rather than invent them, so a search budget too
+ * small to find hours degrades to a document with unknown hours — honest, and
+ * checked as unknown — rather than to a wrong one. Below about four it starts
+ * degrading the day content itself, which is what people read.
+ */
+export const ITINERARY_MAX_SEARCHES = 5;
 
-/** A whole document, so a ceiling that fits days of detail rather than a line. */
+/**
+ * A whole document, so a ceiling that fits days of detail rather than a line.
+ *
+ * Deliberately not reduced. A tool call that runs out of room mid-object
+ * arrives as a schema failure with half its fields missing, and `build.ts`
+ * answers a schema failure with the canned itinerary — so a ceiling shaved to
+ * save a few seconds costs the whole live document instead. Slow beats canned.
+ */
 export const ITINERARY_MAX_TOKENS = 8000;
+
+/**
+ * The repair pass's ceiling.
+ *
+ * Smaller than the first call's, because the work is smaller in exactly one
+ * way: the repair does not search, so none of the budget goes on deciding what
+ * to query and reading results. It still returns the WHOLE document — that is
+ * the first rule it is given — so this has to fit a finished itinerary with
+ * room to spare, which is what 6000 is. The failure mode is the same as above
+ * and just as expensive, so the margin stays generous.
+ */
+export const ITINERARY_REPAIR_MAX_TOKENS = 6000;
 
 /** Default deadline for the one itinerary call, in milliseconds. */
 export const DEFAULT_ITINERARY_TIMEOUT_MS = 120_000;
@@ -170,9 +210,9 @@ const REPAIR_SYSTEM = [
   "",
   "Rules:",
   "- Return the WHOLE document again, in the same shape, with the listed problems fixed and everything else left exactly as it was. Do not rewrite what was not flagged.",
-  "- Search again where you need to. Moving something to a time it is actually open is better than deleting it; deleting it is better than leaving it wrong.",
-  "- Keep every rule from the original brief: real links only, never an invented URL, real posted hours in `opensAt`/`closesAt`/`closedDays`, items in ascending `startsAt` order.",
-  "- If a place genuinely cannot work on that day, replace it with something that can, at a comparable price.",
+  "- You have no search. Everything you need is already in the draft: the posted hours are recorded on each item, and the flight times are on the flight. Reschedule from those. Moving something to a time it is actually open is better than deleting it; deleting it is better than leaving it wrong.",
+  "- Keep every rule from the original brief: real links only, never an invented URL, items in ascending `startsAt` order. Do not change the hours in `opensAt`/`closesAt`/`closedDays` — those came from the search and they are the facts you are scheduling around.",
+  "- If a place genuinely cannot work on that day, move it to a day it can. If no day works, drop it rather than inventing a replacement you have not looked up; a shorter honest day beats a place that may not exist.",
 ].join("\n");
 
 /**
@@ -182,6 +222,14 @@ const REPAIR_SYSTEM = [
  * expensive choice and the right one — the fix for "the museum is shut on
  * Monday" is usually to move something else too, and a model that can only see
  * one row cannot do that without inventing a conflict somewhere it cannot see.
+ *
+ * It does not search, and the draft is why: every problem `checkAvailability`
+ * raises is a comparison between two fields that are already in this JSON —
+ * an item's `startsAt` against its own `opensAt`, `closesAt` and `closedDays`,
+ * or against the flight's `arrivesAt` and `returnsAt`. The pass is re-timing
+ * things the first call already found and priced, so the answer is in the
+ * document it is handed back, and searching for it again is a second round of
+ * web latency buying nothing.
  */
 export function buildItineraryRepairPrompt(
   draft: ItineraryDraft,

@@ -1,0 +1,22 @@
+{
+  "//": "Compiles the runnable *.check.ts suites to plain CommonJS so `npm run check` can execute them with bare node. The app's own tsconfig is noEmit and bundler-resolved, which node cannot run.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": false,
+    "incremental": false,
+    "outDir": ".check-build",
+    "rootDir": "src",
+    "baseUrl": ".",
+    "paths": { "@/*": ["./src/*"] }
+  },
+  "include": ["src/lib/**/*.ts"],
+  "exclude": ["node_modules", "src/app/**"]
+}

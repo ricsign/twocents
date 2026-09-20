@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Emitted by `npm run check`; deleted again on success, but a failed
+    // compile can leave it behind and it must never fail the lint.
+    ".check-build/**",
   ]),
 ]);
 

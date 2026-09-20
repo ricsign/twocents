@@ -312,5 +312,9 @@ export function seedRoom(options: {
     startedAt: Date.now(),
     hostSeat: null,
     runStartedAt: null,
+    // This room is somebody's, not the script's. Leaving the flag set would
+    // have the offline provider read the canned grad-trip transcript over four
+    // briefs about a different trip entirely.
+    scripted: false,
   });
 }

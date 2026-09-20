@@ -43,6 +43,29 @@ import {
   type PublicMandate,
 } from "@/lib/types";
 
+/**
+ * What to write where a mandate names no destination.
+ *
+ * A brief is empty until its human says something, and the seat in front of
+ * the screen starts that way, so the roster line rendered as "- Richard: wants ;
+ * on money they are ..." — a blank the model is free to read as a person with
+ * no opinion, or to fill in for itself. A stated position is both truer and
+ * harder to misread: the agent really is arguing for whatever the room can all
+ * live with, because that is all it has been told.
+ */
+const NO_STATED_WANT = "no destination of their own yet, only that it works for all four";
+
+/** A free-text field the human may simply not have filled in yet. */
+function stated(text: string, empty: string): string {
+  const clean = text.trim();
+  return clean.length > 0 ? clean : empty;
+}
+
+/** A mandate's destination want, or the stance above when they stated none. */
+function statedWant(mandate: PublicMandate): string {
+  return stated(mandate.destinationWant, NO_STATED_WANT);
+}
+
 /** A system/user pair, for the calls that need both halves built together. */
 export interface PromptPair {
   system: string;
@@ -99,7 +122,7 @@ function formatFeasibility(check: OfferFeasibility | undefined): string {
   return `${check.bookable ? "CHECKED" : "NOT BOOKABLE"}: ${check.note}${real}`;
 }
 
-/** `r2 Jordan trades: "Fine. But we keep the catamaran day."` */
+/** `r2 Angela trades: "Fine. But we keep the catamaran day."` */
 export function formatTurn(
   turn: NegotiationTurn,
   maxChars = 160,
@@ -139,7 +162,7 @@ export function buildPublicSystemPrompt(
   const othersBlock = others
     .map((entry) => {
       const name = displayNameFor(names, entry.participantId);
-      return `- ${name}: wants ${entry.destinationWant}; on money they are "${entry.priceStance}".`;
+      return `- ${name}: wants ${statedWant(entry)}; on money they are "${entry.priceStance}".`;
     })
     .join("\n");
 
@@ -150,7 +173,7 @@ export function buildPublicSystemPrompt(
     describePersonality(personality),
     "",
     `WHAT YOU ARE HERE FOR`,
-    `- Destination: ${mandate.destinationWant}`,
+    `- Destination: ${statedWant(mandate)}`,
     `- Dates: ${mandate.dates}${mandate.nights === null ? "" : ` (${mandate.nights} nights)`}`,
     `- On money: ${mandate.priceStance}`,
     `- Hard nos you may state openly:`,
@@ -169,8 +192,9 @@ export function buildPublicSystemPrompt(
     "4. One or two sentences. This is a table, not an essay. No preamble, no stage directions, no quotation marks around your own line.",
     "5. Move the plan forward: propose something concrete, say plainly what does not work and why, or trade one thing for another. Do not restate a point you have already made.",
     "6. When an option on the table works for your person, say so and agree. Agreement is the point, not a loss.",
-    "7. Every option is priced against the live web before you see it. An option marked NOT BOOKABLE is a fantasy — say what it really costs and work from that number, or put up something that exists. Never agree to one.",
-    "8. When the number you are working from came off one of those checks, say where it came from, in the form \"A quick web search shows …\". Only when it did: never claim a search that is not in front of you.",
+    "7. Never agree to an option that costs more than your person can do — their stance on money, above, is the whole of what you know about that limit and the whole of what you need. Say plainly that it is over, and then either put something cheaper up or hold where you are. Saying it is over and agreeing to it two lines later is the one move you never make.",
+    "8. Every option is priced against the live web before you see it. An option marked NOT BOOKABLE is a fantasy — say what it really costs and work from that number, or put up something that exists. Never agree to one.",
+    "9. When the number you are working from came off one of those checks, say where it came from, in the form \"A quick web search shows …\". Only when it did: never claim a search that is not in front of you.",
   ].join("\n");
 }
 
@@ -197,8 +221,18 @@ export function buildNegotiationUserPrompt(options: {
   /** Appended verbatim; carries the redaction retry and the repeat nudge. */
   correction?: string;
   recentTurnCount?: number;
+  /**
+   * What the four people are called in this room.
+   *
+   * Not optional in practice: `formatOffer` and `formatTurn` both fall back to
+   * the cast when it is missing, so leaving it out fed a judges' round a
+   * transcript attributed to Richard, Angela, Will and Tsai. The agents then
+   *答 answered people who were not at the table.
+   */
+  names?: DisplayNames;
 }): string {
   const recent = options.turns.slice(-(options.recentTurnCount ?? 6));
+  const names = options.names;
 
   const parts = [
     `ROUND ${options.round} OF ${options.roundCap}.`,
@@ -206,13 +240,15 @@ export function buildNegotiationUserPrompt(options: {
     "OFFERS ON THE TABLE",
     options.offers.length === 0
       ? "(nothing yet — somebody has to go first)"
-      : options.offers.map((offer, i) => `${i + 1}. ${formatOffer(offer)}`).join("\n"),
+      : options.offers.map((offer, i) => `${i + 1}. ${formatOffer(offer, names)}`).join("\n"),
     "",
     "LEADING OFFER",
-    options.leadingOffer ? formatOffer(options.leadingOffer) : "(none)",
+    options.leadingOffer ? formatOffer(options.leadingOffer, names) : "(none)",
     "",
     "WHAT WAS SAID",
-    recent.length === 0 ? "(the table is quiet)" : recent.map((turn) => formatTurn(turn)).join("\n"),
+    recent.length === 0
+      ? "(the table is quiet)"
+      : recent.map((turn) => formatTurn(turn, undefined, names)).join("\n"),
     "",
     "Say your line now. If you are putting a new trip on the table, fill in `offer` with the whole option; otherwise leave `offer` out. Put the real reason behind your line — the one you did NOT say out loud — in `privateReasonKept`.",
   ];
@@ -257,7 +293,8 @@ export function buildPlanPrompt(
     mandates
       .map((mandate) => {
         const name = displayNameFor(names, mandate.participantId);
-        return `- ${name}: ${mandate.destinationWant}; on money "${mandate.priceStance}"; wants: ${mandate.wants.join(", ")}`;
+        const wants = mandate.wants.map((want) => want.trim()).filter(Boolean);
+        return `- ${name}: ${statedWant(mandate)}; on money "${mandate.priceStance}"; wants: ${wants.length > 0 ? wants.join(", ") : "(none stated)"}`;
       })
       .join("\n"),
     "",
@@ -322,8 +359,10 @@ export function buildPrivateReportPrompt(
 
   const user = [
     `WHAT ${me.toUpperCase()} TOLD YOU IN PRIVATE`,
-    `- Wanted: ${brief.destinationWant}`,
-    `- Dates: ${brief.dates}`,
+    // Their own words back to them, and an explicit blank where there are
+    // none: a bare "- Wanted:" invites the model to fill the gap in for them.
+    `- Wanted: ${stated(brief.destinationWant, "(they did not say)")}`,
+    `- Dates: ${stated(brief.dates, "(they did not say)")}`,
     brief.budgetCeiling === null
       ? "- Ceiling: none given"
       : `- Ceiling: $${brief.budgetCeiling}${brief.budgetIsPrivate ? " (PRIVATE — you never said it in the room)" : ""}`,
@@ -335,7 +374,7 @@ export function buildPrivateReportPrompt(
     "",
     "THE AGREED PLAN",
     formatOffer(plan.offer, names),
-    `Group total $${plan.groupTotal}. Delivers: ${plan.keptWants.join(", ")}.`,
+    `Group total $${plan.groupTotal}. Delivers: ${stated(plan.keptWants.join(", "), "(nothing itemised)")}.`,
     plan.runnerUp
       ? `Runner-up: ${formatOffer(plan.runnerUp, names)} — lost because ${plan.runnerUpLostBecause}`
       : "No runner-up.",
