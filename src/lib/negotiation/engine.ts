@@ -646,6 +646,7 @@ export async function* runNegotiation(
             offers,
             leadingOffer: offers.length > 0 ? (offers[offers.length - 1] as Offer) : null,
             correction: extra,
+            names,
           }),
         },
       ],

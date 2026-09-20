@@ -220,8 +220,18 @@ export function buildNegotiationUserPrompt(options: {
   /** Appended verbatim; carries the redaction retry and the repeat nudge. */
   correction?: string;
   recentTurnCount?: number;
+  /**
+   * What the four people are called in this room.
+   *
+   * Not optional in practice: `formatOffer` and `formatTurn` both fall back to
+   * the cast when it is missing, so leaving it out fed a judges' round a
+   * transcript attributed to Will, Angela, Richard and Tsai. The agents then
+   *答 answered people who were not at the table.
+   */
+  names?: DisplayNames;
 }): string {
   const recent = options.turns.slice(-(options.recentTurnCount ?? 6));
+  const names = options.names;
 
   const parts = [
     `ROUND ${options.round} OF ${options.roundCap}.`,
@@ -229,13 +239,15 @@ export function buildNegotiationUserPrompt(options: {
     "OFFERS ON THE TABLE",
     options.offers.length === 0
       ? "(nothing yet — somebody has to go first)"
-      : options.offers.map((offer, i) => `${i + 1}. ${formatOffer(offer)}`).join("\n"),
+      : options.offers.map((offer, i) => `${i + 1}. ${formatOffer(offer, names)}`).join("\n"),
     "",
     "LEADING OFFER",
-    options.leadingOffer ? formatOffer(options.leadingOffer) : "(none)",
+    options.leadingOffer ? formatOffer(options.leadingOffer, names) : "(none)",
     "",
     "WHAT WAS SAID",
-    recent.length === 0 ? "(the table is quiet)" : recent.map((turn) => formatTurn(turn)).join("\n"),
+    recent.length === 0
+      ? "(the table is quiet)"
+      : recent.map((turn) => formatTurn(turn, undefined, names)).join("\n"),
     "",
     "Say your line now. If you are putting a new trip on the table, fill in `offer` with the whole option; otherwise leave `offer` out. Put the real reason behind your line — the one you did NOT say out loud — in `privateReasonKept`.",
   ];
