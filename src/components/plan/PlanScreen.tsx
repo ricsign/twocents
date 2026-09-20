@@ -19,9 +19,16 @@
  * `initialView` is the same narrowing done on the server, so a reload after a
  * finished run paints the plan in the first frame instead of flashing a
  * loading line at a judge. It is null exactly when the cold path has work.
+ *
+ * The two links at the bottom are the way out. This was the end of a one-way
+ * flow: approve, and then nothing, with the browser's back button the only
+ * exit and a re-running town screen on the other side of it. Back to the town
+ * now repaints the run that produced this plan, and the judges' round is one
+ * tap from the screen a judge is looking at when you offer them a turn.
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { PixelLink } from "@/components/ui/PixelButton";
 import { YOU } from "@/lib/characters";
 import { sessionViewSchema } from "@/lib/session-view";
 import { planViewFrom, type PlanView } from "./view";
@@ -143,13 +150,29 @@ export function PlanScreen({
         {view.report ? (
           <AgentReportCard report={view.report} you={YOU} names={view.names} />
         ) : null}
-        <div className="mt-auto pt-2">
+        <div className="mt-auto flex flex-col gap-5 pt-2">
           <ApprovalRow
             you={YOU}
             approvals={view.approvals}
             sessionId={view.sessionId}
             names={view.names}
           />
+          <div className="flex flex-wrap gap-3">
+            <PixelLink
+              href="/town"
+              variant="ghost"
+              className="h-12 flex-1 px-4 text-center text-[9px] leading-tight"
+            >
+              ← BACK TO THE TOWN
+            </PixelLink>
+            <PixelLink
+              href="/judges"
+              variant="gold"
+              className="h-12 flex-1 px-4 text-center text-[9px] leading-tight"
+            >
+              JUDGES’ ROUND
+            </PixelLink>
+          </div>
         </div>
       </div>
     </main>
