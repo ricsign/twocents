@@ -43,6 +43,29 @@ import {
   type PublicMandate,
 } from "@/lib/types";
 
+/**
+ * What to write where a mandate names no destination.
+ *
+ * A brief is empty until its human says something, and the seat in front of
+ * the screen starts that way, so the roster line rendered as "- Will: wants ;
+ * on money they are ..." — a blank the model is free to read as a person with
+ * no opinion, or to fill in for itself. A stated position is both truer and
+ * harder to misread: the agent really is arguing for whatever the room can all
+ * live with, because that is all it has been told.
+ */
+const NO_STATED_WANT = "no destination of their own yet, only that it works for all four";
+
+/** A free-text field the human may simply not have filled in yet. */
+function stated(text: string, empty: string): string {
+  const clean = text.trim();
+  return clean.length > 0 ? clean : empty;
+}
+
+/** A mandate's destination want, or the stance above when they stated none. */
+function statedWant(mandate: PublicMandate): string {
+  return stated(mandate.destinationWant, NO_STATED_WANT);
+}
+
 /** A system/user pair, for the calls that need both halves built together. */
 export interface PromptPair {
   system: string;
@@ -139,7 +162,7 @@ export function buildPublicSystemPrompt(
   const othersBlock = others
     .map((entry) => {
       const name = displayNameFor(names, entry.participantId);
-      return `- ${name}: wants ${entry.destinationWant}; on money they are "${entry.priceStance}".`;
+      return `- ${name}: wants ${statedWant(entry)}; on money they are "${entry.priceStance}".`;
     })
     .join("\n");
 
@@ -150,7 +173,7 @@ export function buildPublicSystemPrompt(
     describePersonality(personality),
     "",
     `WHAT YOU ARE ARGUING FOR`,
-    `- Destination: ${mandate.destinationWant}`,
+    `- Destination: ${statedWant(mandate)}`,
     `- Dates: ${mandate.dates}${mandate.nights === null ? "" : ` (${mandate.nights} nights)`}`,
     `- On money: ${mandate.priceStance}`,
     `- Hard nos you may state openly:`,
@@ -255,7 +278,8 @@ export function buildPlanPrompt(
     mandates
       .map((mandate) => {
         const name = displayNameFor(names, mandate.participantId);
-        return `- ${name}: ${mandate.destinationWant}; on money "${mandate.priceStance}"; wants: ${mandate.wants.join(", ")}`;
+        const wants = mandate.wants.map((want) => want.trim()).filter(Boolean);
+        return `- ${name}: ${statedWant(mandate)}; on money "${mandate.priceStance}"; wants: ${wants.length > 0 ? wants.join(", ") : "(none stated)"}`;
       })
       .join("\n"),
     "",
@@ -320,8 +344,10 @@ export function buildPrivateReportPrompt(
 
   const user = [
     `WHAT ${me.toUpperCase()} TOLD YOU IN PRIVATE`,
-    `- Wanted: ${brief.destinationWant}`,
-    `- Dates: ${brief.dates}`,
+    // Their own words back to them, and an explicit blank where there are
+    // none: a bare "- Wanted:" invites the model to fill the gap in for them.
+    `- Wanted: ${stated(brief.destinationWant, "(they did not say)")}`,
+    `- Dates: ${stated(brief.dates, "(they did not say)")}`,
     brief.budgetCeiling === null
       ? "- Ceiling: none given"
       : `- Ceiling: $${brief.budgetCeiling}${brief.budgetIsPrivate ? " (PRIVATE — you never said it in the room)" : ""}`,
@@ -333,7 +359,7 @@ export function buildPrivateReportPrompt(
     "",
     "THE AGREED PLAN",
     formatOffer(plan.offer, names),
-    `Group total $${plan.groupTotal}. Delivers: ${plan.keptWants.join(", ")}.`,
+    `Group total $${plan.groupTotal}. Delivers: ${stated(plan.keptWants.join(", "), "(nothing itemised)")}.`,
     plan.runnerUp
       ? `Runner-up: ${formatOffer(plan.runnerUp, names)} — lost because ${plan.runnerUpLostBecause}`
       : "No runner-up.",

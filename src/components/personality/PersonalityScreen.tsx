@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { DisplayNames, ParticipantId } from "@/lib/characters";
 import type { Personality } from "@/lib/types";
-import { PixelLink } from "@/components/ui/PixelButton";
+import { PixelButton } from "@/components/ui/PixelButton";
 import { PersonalityStage } from "./PersonalityStage";
 import { PresetRow } from "./PresetRow";
 import { SliderRow } from "./SliderRow";
@@ -32,7 +33,50 @@ import { useDebouncedEffect } from "./useDebouncedEffect";
 const VOICE_DEBOUNCE_MS = 350;
 const SAVE_DEBOUNCE_MS = 500;
 
+/**
+ * How long the way out waits for the save before going anyway.
+ *
+ * A hung request is not a reason to strand somebody mid-demo, and leaving
+ * early is no worse than the behaviour this replaces.
+ */
+const SAVE_TIMEOUT_MS = 1200;
+
 type SliderKey = "stubborn" | "splurgy" | "blunt" | "adventurous";
+
+/**
+ * The one write this screen makes, in one place.
+ *
+ * Both the debounce and the way out call it, because they are the same write
+ * and a second copy of it is a second thing to keep in step with the route.
+ * Never rejects: rule 2, the room does not see an error state.
+ */
+async function savePersonality(
+  participantId: ParticipantId,
+  personality: Personality,
+  init: RequestInit = {},
+): Promise<void> {
+  try {
+    await fetch("/api/session", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        action: "updatePersonality",
+        // Writing your own row. The route refuses anything else.
+        viewer: participantId,
+        participantId,
+        personality,
+      }),
+      ...init,
+    });
+  } catch {
+    // Rule 2.
+  }
+}
+
+/** Resolves after `ms`. Used only to bound a wait, never to pace anything. */
+function after(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 const SLIDERS: { key: SliderKey; low: string; high: string }[] = [
   { key: "stubborn", low: "Easygoing", high: "Stubborn" },
@@ -55,8 +99,10 @@ export function PersonalityScreen({
   /** Who the agent on the stage speaks for. */
   names?: DisplayNames;
 }) {
+  const router = useRouter();
   const [personality, setPersonality] = useState<Personality>(initialPersonality);
   const [line, setLine] = useState(() => sampleLine(initialPersonality, topic));
+  const [leaving, setLeaving] = useState(false);
 
   const sliderKey = SLIDERS.map((s) => personality[s.key]).join("|");
 
@@ -100,23 +146,47 @@ export function PersonalityScreen({
         // Rule 2: the room never sees an error state.
       }
     })();
-  });
+    // The only thing this call does is repaint the line under the stage. Once
+    // the screen is gone there is nothing to repaint, so a preview still on
+    // the timer is dropped rather than spending a model call on it.
+  }, { flushOnUnmount: false });
 
   // Persist, so the town argues with the personality that is on screen.
+  //
+  // This is the write the flip beat turns on: it is what clears the finished
+  // plan, and a cleared plan is what makes the town run itself again on
+  // arrival. `useDebouncedEffect` fires a pending one on the way out rather
+  // than dropping it, and `keepalive` lets that last request outlive the
+  // navigation or the tab close it is issued into.
   useDebouncedEffect(`${sliderKey}|${personality.bio}`, SAVE_DEBOUNCE_MS, (signal) => {
-    void fetch("/api/session", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        action: "updatePersonality",
-        // Writing your own row. The route refuses anything else.
-        viewer: participantId,
-        participantId,
-        personality,
-      }),
-      signal,
-    }).catch(() => {});
+    void savePersonality(participantId, personality, { keepalive: true, signal });
   });
+
+  /**
+   * The way out of step 2, and the one place the flip beat can still break.
+   *
+   * `/town` renders the session on the server, and the client fetches that
+   * render *before* this screen unmounts — so a save still sitting on the
+   * debounce when the button is pressed lands after the town has already been
+   * told the session holds a finished plan, even now that it is fired on the
+   * way out rather than dropped. The town then repaints the previous run and
+   * the slider a judge just moved appears to have done nothing.
+   *
+   * So the navigation waits for the write instead of racing it: save, drop the
+   * router's cached payload for the page we are going to, then go. That is
+   * also why this is a button and not the `PixelLink` it used to be — a link
+   * navigates on click and there is nowhere in it to wait.
+   */
+  async function sendToTown(): Promise<void> {
+    if (leaving) return;
+    setLeaving(true);
+    await Promise.race([
+      savePersonality(participantId, personality),
+      after(SAVE_TIMEOUT_MS),
+    ]);
+    router.refresh();
+    router.push("/town");
+  }
 
   return (
     <main className="grid min-h-0 flex-1 grid-cols-1 gap-10 px-4 pt-8 pb-10 sm:px-8 min-[1100px]:grid-cols-[520px_minmax(0,1fr)] min-[1100px]:gap-16 min-[1100px]:px-14 min-[1100px]:pt-11 min-[1100px]:pb-12">
@@ -163,14 +233,15 @@ export function PersonalityScreen({
           <Link href="/brief" className="text-[15px] font-bold text-bark no-underline">
             ← Back to the brief
           </Link>
-          <PixelLink
-            href="/town"
+          <PixelButton
             variant="primary"
             raised
+            disabled={leaving}
+            onClick={() => void sendToTown()}
             className="h-16 w-full px-4 text-center sm:w-auto sm:px-9"
           >
             SEND MY AGENT TO THE TOWN
-          </PixelLink>
+          </PixelButton>
         </div>
       </div>
     </main>

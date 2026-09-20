@@ -63,8 +63,10 @@ export function TownScreen({
           <TownControls
             paused={paused}
             speed={negotiation.speed}
-            // Nothing to pause before a run starts, and nothing to pause on a
-            // finished one that was painted rather than streamed.
+            // Nothing to pause or re-pace before a run starts, and nothing to
+            // pause or re-pace on a finished one that was painted rather than
+            // streamed. Speed is applied by restarting the stream, which a
+            // replayed run has none of, so the buttons dim with the pause.
             disabled={status === "idle" || status === "done"}
             onTogglePause={paused ? negotiation.resume : negotiation.pause}
             onSpeed={negotiation.setSpeed}

@@ -273,7 +273,13 @@ export function JudgesScreen() {
       });
       if (!res.ok) throw new Error(`judges responded ${res.status}`);
       // The route seeded the session the town already reads, so there is
-      // nothing to hand along but the navigation itself.
+      // nothing to hand along but the navigation itself — except the refresh.
+      // `/town` renders the session on the server, and the router's cached
+      // payload for it still describes the room the last judge left behind:
+      // without this, a judge who has already been to the town once watches
+      // the previous round's transcript repaint under their own names.
+      // `RunStats` refreshes before its push for the same reason.
+      router.refresh();
       router.push("/town");
     } catch {
       setStarting(false);

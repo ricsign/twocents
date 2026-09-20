@@ -32,6 +32,13 @@
 import assert from "node:assert/strict";
 import { PARTICIPANT_IDS, type ParticipantId } from "@/lib/characters";
 import { OfflineProvider } from "@/lib/llm/offline";
+import {
+  buildScenario,
+  scenarioPlan,
+  scenarioReport,
+  scenarioTurn,
+  type OfflineHints,
+} from "@/lib/llm/scenario";
 import { runNegotiation } from "@/lib/negotiation/engine";
 import { checkForLeaks } from "@/lib/negotiation/redaction";
 import {
@@ -287,6 +294,109 @@ async function assertGeneratedRunIsSound(
 }
 
 /* -------------------------------------------------------------------------- */
+/* 3. The seat that has said nothing                                           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The room before anybody types: three seeded briefs and the seat in front of
+ * the screen exactly as `createSeedSession` leaves it — no destination, no
+ * dates, no ceiling, no wants.
+ *
+ * `scripted` is cleared because that is what the first keystroke, the sample
+ * brief and a slider all do, and because the point of these checks is what the
+ * *generator* does with an empty brief rather than what the canned transcript
+ * says.
+ */
+function unbriefedSeatSession(id: string): DemoSession {
+  return { ...createSeedSession(id), scripted: false };
+}
+
+/** Hints for a four-seat room where exactly one person named no ceiling. */
+function hintsWithOneUnknownCeiling(): OfflineHints {
+  return {
+    scenarioId: null,
+    topic: TRIP_NAME,
+    when: "Mar 14–19",
+    nights: 5,
+    priceCap: 1500,
+    people: [
+      // Seat zero, and the one the human sits in: nothing said at all.
+      { participantId: "maya", name: "Will", want: "", wants: [], ceiling: null },
+      { participantId: "jordan", name: "Angela", want: "a city with nightlife", wants: ["a city with nightlife"], ceiling: 900 },
+      { participantId: "sam", name: "Richard", want: "a resort on the beach", wants: ["a resort on the beach"], ceiling: 1400 },
+      { participantId: "priya", name: "Tsai", want: "somewhere with no passport", wants: ["somewhere with no passport"], ceiling: 1100 },
+    ],
+    offerIds: [],
+    spokenCount: 0,
+    attempt: 0,
+  };
+}
+
+/**
+ * The shapes a blank leaves behind when it is interpolated into a sentence.
+ *
+ * Everything the generator writes goes through `squeeze`, so runs of
+ * whitespace and punctuation with nothing in front of it are not style
+ * questions here — each one is a slot that was filled with `""`.
+ */
+const BLANK_SLOT: readonly RegExp[] = [
+  /(^|\s)[.,;]/,
+  /,\s*,/,
+  /\s{2,}/,
+  /\(\s*\)/,
+];
+
+/** The first blank-slot pattern this text trips, or null. */
+function blankSlotIn(text: string): string | null {
+  for (const pattern of BLANK_SLOT) {
+    if (pattern.test(text)) return String(pattern);
+  }
+  return null;
+}
+
+/**
+ * Every string anywhere inside a generated object.
+ *
+ * The generator hands back `Record<string, unknown>` — the plan and the
+ * reports are validated into their shapes downstream — so walking the value
+ * is what lets this scan the whole thing rather than the handful of fields
+ * somebody remembered to list, including ones added later.
+ */
+function stringsIn(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap(stringsIn);
+  if (value !== null && typeof value === "object") {
+    return Object.values(value).flatMap(stringsIn);
+  }
+  return [];
+}
+
+/**
+ * A room where the fields the demo fills in last are still blank: no dates, no
+ * nights, and nothing said at all by the seat with the most room on money —
+ * which is the seat whose want the plan is built around and whose private
+ * report names what it cost them.
+ */
+function hintsWithBlankFields(): OfflineHints {
+  return {
+    scenarioId: null,
+    topic: TRIP_NAME,
+    when: "",
+    nights: null,
+    priceCap: 1500,
+    people: [
+      { participantId: "maya", name: "Will", want: "", wants: [], ceiling: 1400 },
+      { participantId: "jordan", name: "Angela", want: "a city with nightlife", wants: ["a city with nightlife"], ceiling: 900 },
+      { participantId: "sam", name: "Richard", want: "", wants: [], ceiling: 800 },
+      { participantId: "priya", name: "Tsai", want: "somewhere with no passport", wants: ["somewhere with no passport"], ceiling: 1100 },
+    ],
+    offerIds: [],
+    spokenCount: 0,
+    attempt: 0,
+  };
+}
+
+/* -------------------------------------------------------------------------- */
 /* Run                                                                         */
 /* -------------------------------------------------------------------------- */
 
@@ -366,6 +476,111 @@ async function main(): Promise<void> {
         assert.ok(!seen.has(text), `${label}: a line was repeated verbatim in a long run: ${text}`);
         seen.add(text);
       }
+    }
+  });
+
+  // A ceiling nobody stated used to sort as `POSITIVE_INFINITY`, which made
+  // the one seat that had said nothing "the person with the most room": it
+  // opened with the expensive option and then had its headline want taken off
+  // it as the price of the plan. The seat in front of the screen starts
+  // exactly there, so this is the human who types one sentence with no number
+  // in it.
+  await check("an unknown ceiling does not make that seat the opener", () => {
+    const scenario = buildScenario(hintsWithOneUnknownCeiling());
+
+    assert.notEqual(
+      scenario.roles.opener.participantId,
+      "maya",
+      "the seat that named no ceiling was cast as the one with the most room",
+    );
+    assert.equal(
+      scenario.roles.opener.participantId,
+      "sam",
+      "the highest stated ceiling should be the one that opens expensive",
+    );
+    // And the other half of the same rule: an unknown ceiling reads as the
+    // tight end of the scale, which is what `priceStanceFor(null, …)` says too.
+    assert.equal(scenario.roles.holdout.participantId, "maya");
+  });
+
+  // Every blank in a brief used to reach the screen as itself: a private
+  // report whose second sentence opened with a full stop, and a plan summary
+  // with an empty date clause in the middle of it.
+  await check("a room with an unbriefed seat still reads as sentences", async () => {
+    const session = unbriefedSeatSession("check-unbriefed");
+    const events = await runOffline(session);
+
+    const agreed = events.find(
+      (event): event is Extract<NegotiationEvent, { type: "agreed" }> => event.type === "agreed",
+    );
+    assert.ok(agreed, "the room never agreed");
+
+    const done = events.find(
+      (event): event is Extract<NegotiationEvent, { type: "done" }> => event.type === "done",
+    );
+    assert.ok(done, "the run never finished");
+
+    const spoken = events
+      .filter((event): event is Extract<NegotiationEvent, { type: "speak" }> => event.type === "speak")
+      .map((event) => event.text);
+
+    const reports = PARTICIPANT_IDS.flatMap((participantId) => {
+      const report = done.reports[participantId];
+      assert.ok(report, `${participantId} got no private report`);
+      return [report.gotYou, report.tradedAway, report.why];
+    });
+
+    // Every string the plan carries to the screen, which is what the plan
+    // header and the ticks under it are assembled from.
+    const written = [
+      agreed.plan.runnerUpLostBecause,
+      agreed.plan.offer.dates,
+      agreed.plan.offer.destination,
+      agreed.plan.offer.region,
+      agreed.plan.offer.flightNote,
+      agreed.plan.offer.lodgingNote,
+      ...agreed.plan.offer.highlights,
+      ...agreed.plan.keptWants,
+      ...spoken,
+      ...reports,
+    ];
+
+    for (const text of written) {
+      const tripped = blankSlotIn(text);
+      assert.equal(tripped, null, `an empty field reached the page (${tripped}): ${text}`);
+      assert.ok(text.trim().length > 0, "a generated field came back empty");
+    }
+  });
+
+  // The unit-level version of the same rule, on the fields the end-to-end run
+  // cannot leave blank: a room where the opener said nothing and nobody gave
+  // dates. `opener.wants[0] ?? opener.want` used to fall through one blank to
+  // the next and print a private report whose second sentence opened with a
+  // full stop; an empty `when` printed "Somewhere cheap, the coast, . $540 a
+  // person" as the plan.
+  await check("a plan and a report built from blank fields have no empty slots", () => {
+    const hints = hintsWithBlankFields();
+    const scenario = buildScenario(hints);
+
+    const texts = [
+      ...stringsIn(scenarioPlan(scenario)),
+      ...PARTICIPANT_IDS.flatMap((participantId) =>
+        stringsIn(scenarioReport(scenario, participantId)),
+      ),
+      // Four roles across all three of their beats, so a blank cannot hide in
+      // the one step this room happens to open on.
+      ...[0, 1, 2, 3].flatMap((spokenCount) =>
+        PARTICIPANT_IDS.map(
+          (participantId) =>
+            scenarioTurn({ ...hints, spokenCount }, scenario, participantId).text,
+        ),
+      ),
+    ];
+
+    for (const text of texts) {
+      const tripped = blankSlotIn(text);
+      assert.equal(tripped, null, `an empty field reached the page (${tripped}): ${text}`);
+      assert.ok(text.trim().length > 0, "a generated field came back empty");
     }
   });
 

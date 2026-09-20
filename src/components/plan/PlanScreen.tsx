@@ -20,6 +20,13 @@
  * finished run paints the plan in the first frame instead of flashing a
  * loading line at a judge. It is null exactly when the cold path has work.
  *
+ * The cold path can also lose the race. `/api/negotiate` allows one run per
+ * session and answers 409 to the second, so a judge who taps the step-3 pip
+ * while this screen is still draining gets the town's run instead of a second
+ * one writing over it. That refusal is not an error here: the run that won is
+ * writing the plan this screen is waiting for, so the screen stops asking and
+ * watches the session until it lands.
+ *
  * The two links at the bottom are the way out. This was the end of a one-way
  * flow: approve, and then nothing, with the browser's back button the only
  * exit and a re-running town screen on the other side of it. Back to the town
@@ -41,6 +48,19 @@ import { RunStats } from "./RunStats";
 /** Fast-forward for the headless run. `/api/negotiate` clamps speed at 8x. */
 const HEADLESS_SPEED = 8;
 
+/** The route's answer when another screen already has this session's run. */
+const ALREADY_RUNNING = 409;
+
+/**
+ * How long to watch the session for somebody else's run to land.
+ *
+ * Generous on purpose: the run that beat us to it may be the town's, played at
+ * 1x for an audience, which is half a minute of screen time before the `done`
+ * frame is written.
+ */
+const POLL_MS = 1000;
+const POLL_TRIES = 90;
+
 type Status = "loading" | "negotiating" | "ready" | "error";
 
 /**
@@ -56,7 +76,42 @@ async function loadView(): Promise<PlanView | null> {
   return parsed.success ? planViewFrom(parsed.data) : null;
 }
 
-/** Runs the negotiation with nothing on screen, then resolves. */
+/** Resolves after `ms`, or at once if the caller has already given up. */
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener("abort", () => {
+      clearTimeout(timer);
+      resolve();
+    }, { once: true });
+  });
+}
+
+/**
+ * Reads the session until it holds a plan, or gives up.
+ *
+ * The first read happens immediately, so the ordinary path — our own headless
+ * run, already finished and written — costs exactly one request.
+ */
+async function waitForPlan(signal: AbortSignal): Promise<PlanView | null> {
+  for (let attempt = 0; attempt < POLL_TRIES; attempt += 1) {
+    const view = await loadView();
+    if (view) return view;
+    if (signal.aborted) return null;
+    await sleep(POLL_MS, signal);
+    if (signal.aborted) return null;
+  }
+  return null;
+}
+
+/**
+ * Runs the negotiation with nothing on screen, then resolves.
+ *
+ * A 409 means another screen already holds this session's run. Resolving
+ * rather than throwing hands the caller straight to `waitForPlan`, which is
+ * what it would do with our own run anyway.
+ */
 async function runHeadless(signal: AbortSignal): Promise<void> {
   const res = await fetch("/api/negotiate", {
     method: "POST",
@@ -64,6 +119,7 @@ async function runHeadless(signal: AbortSignal): Promise<void> {
     body: JSON.stringify({ speed: HEADLESS_SPEED }),
     signal,
   });
+  if (res.status === ALREADY_RUNNING) return;
   if (!res.ok || !res.body) throw new Error(`negotiate responded ${res.status}`);
 
   // Every frame is discarded: the route writes the result to the session, and
@@ -97,7 +153,7 @@ export function PlanScreen({
     await runHeadless(signal);
     if (signal.aborted) return;
 
-    const finished = await loadView();
+    const finished = await waitForPlan(signal);
     if (signal.aborted) return;
     if (!finished) throw new Error("the negotiation produced no plan");
     setView(finished);

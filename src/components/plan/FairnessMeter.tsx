@@ -25,16 +25,28 @@ const SLOTS = 5;
  * `gaveUp` arrives already phrased as a sentence fragment and usually already
  * carries the verb ("gave up the resort"), so the prefix is added only when it
  * is missing rather than unconditionally.
+ *
+ * A seat that stated nothing is its own caption. The total used to be coerced
+ * with `|| SLOTS`, which turned a person who asked for nothing into "0 of 5
+ * wants kept" beside an empty bar — a row that reads as the worst outcome on
+ * the screen, printed next to a green "Nobody overruled" that is correctly
+ * true of them. The seat in front of the screen starts exactly there, so this
+ * is the first thing a judge sees if the run happens before anybody types.
  */
 function captionFor(row: FairnessRow): string {
-  const total = row.wantsTotal || SLOTS;
   const gaveUp = row.gaveUp?.trim();
-  if (!gaveUp) return `${row.wantsKept} of ${total} wants kept`;
+  const phrase = !gaveUp
+    ? null
+    : /^gave up\b/i.test(gaveUp)
+      ? gaveUp.charAt(0).toLowerCase() + gaveUp.slice(1)
+      : `gave up ${gaveUp.charAt(0).toLowerCase()}${gaveUp.slice(1)}`;
 
-  const phrase = /^gave up\b/i.test(gaveUp)
-    ? gaveUp.charAt(0).toLowerCase() + gaveUp.slice(1)
-    : `gave up ${gaveUp.charAt(0).toLowerCase()}${gaveUp.slice(1)}`;
-  return `${row.wantsKept} of ${total} · ${phrase}`;
+  if (row.wantsTotal <= 0) {
+    return phrase ? `nothing asked for · ${phrase}` : "nothing asked for";
+  }
+
+  const kept = `${row.wantsKept} of ${row.wantsTotal}`;
+  return phrase ? `${kept} · ${phrase}` : `${kept} wants kept`;
 }
 
 /** Five boxes, `filled` of them in the person's accent. Decorative by design. */
