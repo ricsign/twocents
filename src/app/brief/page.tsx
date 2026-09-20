@@ -3,6 +3,7 @@ import { TopBar } from "@/components/ui/TopBar";
 import { BriefScreen } from "@/components/brief/BriefScreen";
 import type { ChatMessage } from "@/components/brief/BriefChat";
 import { PARTICIPANT_IDS, YOU, type ParticipantId } from "@/lib/characters";
+import { hasBriefed } from "@/lib/flow";
 import { SAMPLE_BRIEF } from "@/lib/seed";
 import { getOrCreateDefault } from "@/lib/session";
 import { displayNamesOf, type Brief, type DemoSession } from "@/lib/types";
@@ -33,10 +34,7 @@ const OPENING_QUESTION =
  * them in a judges' round where all four seats were filled at the same moment.
  */
 function briefedIn(session: DemoSession): ParticipantId[] {
-  return PARTICIPANT_IDS.filter((id) => {
-    const { rawTranscript, destinationWant } = session.participants[id].brief;
-    return rawTranscript.length > 0 || destinationWant.trim().length > 0;
-  });
+  return PARTICIPANT_IDS.filter((id) => hasBriefed(session.participants[id].brief));
 }
 
 /** The stored conversation, or the one line that starts one. */

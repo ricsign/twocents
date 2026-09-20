@@ -8,7 +8,7 @@ import { PixelLink } from "@/components/ui/PixelButton";
 import { PersonalityStage } from "./PersonalityStage";
 import { PresetRow } from "./PresetRow";
 import { SliderRow } from "./SliderRow";
-import { sampleLine } from "./sampleLine";
+import { sampleLine, type SampleTopic } from "./sampleLine";
 import { useDebouncedEffect } from "./useDebouncedEffect";
 
 /**
@@ -19,6 +19,14 @@ import { useDebouncedEffect } from "./useDebouncedEffect";
  * thumb; `/api/voice` then upgrades that line 350ms after the hand stops, and
  * the session is saved on a slower beat still. Nobody on stage ever waits on a
  * network round trip to see a slider do something.
+ *
+ * The opening line comes from `sampleLine` too. It used to be a string the
+ * page handed down, lifted out of the design mockup, which meant the first
+ * sentence a judge read was about a destination the person in the seat had
+ * never mentioned and did not answer to the sliders under it. Deriving it from
+ * the same function every drag uses costs nothing — `sampleLine` is pure and
+ * synchronous, so the server render and the first client render agree — and
+ * means there is exactly one place the line can come from.
  */
 
 const VOICE_DEBOUNCE_MS = 350;
@@ -36,25 +44,26 @@ const SLIDERS: { key: SliderKey; low: string; high: string }[] = [
 export function PersonalityScreen({
   participantId,
   initialPersonality,
-  initialLine,
+  topic,
   names,
 }: {
   participantId: ParticipantId;
+  /** The personality stored in the session, not a seed. A reload must not revert it. */
   initialPersonality: Personality;
-  /** The line on the first frame, so the screen opens on the designed one. */
-  initialLine: string;
+  /** What this room is arguing about, so the preview argues about that too. */
+  topic: SampleTopic;
   /** Who the agent on the stage speaks for. */
   names?: DisplayNames;
 }) {
   const [personality, setPersonality] = useState<Personality>(initialPersonality);
-  const [line, setLine] = useState(initialLine);
+  const [line, setLine] = useState(() => sampleLine(initialPersonality, topic));
 
   const sliderKey = SLIDERS.map((s) => personality[s.key]).join("|");
 
   /** Every change goes through here, so the line can never lag the sliders. */
   function apply(next: Personality) {
     setPersonality(next);
-    setLine(sampleLine(next));
+    setLine(sampleLine(next, topic));
   }
 
   function setSlider(key: SliderKey, value: number) {
