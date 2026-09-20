@@ -9,6 +9,21 @@
  * and the whole scene grows or shrinks without a single element drifting out of
  * register.
  *
+ * The frame used to take the column's full width and let its aspect ratio pick
+ * its height, which is only right on a window taller than it is wide. On a
+ * laptop or a projector — 1920x1080 and shorter once the browser chrome is off
+ * it — 888x768 scaled to a 1200px column is over a thousand pixels tall, the
+ * page is `overflow-hidden` by then, and everything past the fold went with it:
+ * the speed and RESET DEMO buttons in the room's own bottom corner, and SEE THE
+ * PLAN beneath the transcript. A judge had to reach for the browser's zoom to
+ * find the controls, which is not a thing a judge should have to do.
+ *
+ * So the room is fitted to the box it is given, not just its width: the scale
+ * is whichever of width and height runs out first, and the frame is then sized
+ * to exactly that, staying in ratio and centred in whatever space is left. The
+ * controls live in the frame rather than the scaled layer, so they stay at a
+ * fixed, legible size however small the room gets.
+ *
  * Bubble anchors are hard-coded per speaker rather than solved for: only two
  * bubbles are ever up at once, the four slots below do not overlap each other
  * or any face, and a layout that cannot surprise you on stage is worth more
@@ -19,7 +34,7 @@
  */
 
 import {
-  useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
@@ -34,6 +49,17 @@ import { SpeechBubble } from "./SpeechBubble";
 
 export const ROOM_W = 888;
 export const ROOM_H = 768;
+
+/** The frame's border, which sits outside the room's own pixels. */
+const BORDER = 4;
+
+/**
+ * Above this the page is a fixed, non-scrolling viewport (`/town` is
+ * `h-screen overflow-hidden` there), so the room has a height it must fit
+ * inside. Below it the page scrolls in one column and only width binds.
+ * Kept in step with the `min-[1100px]:` layout on TownScreen and TownPage.
+ */
+const FIXED_VIEWPORT = "(min-width: 1100px)";
 
 /**
  * Where a speaker's bubble hangs. `bottomY` is the bubble's lower edge, so a
@@ -76,107 +102,151 @@ export function Room({
   /** The speed controls, so they sit inside the room's frame, unscaled. */
   children?: ReactNode;
 }) {
-  const [frameRef, scale] = useFitScale();
+  const [boxRef, fit] = useFitScale();
+
+  // Before the first measurement — the server's render, and the tick before
+  // hydration — fall back to the width-driven box, which is what shipped
+  // before and is right on the tall windows.
+  const scale = fit ?? 1;
 
   return (
     <div
-      ref={frameRef}
-      aria-hidden="true"
-      className="relative w-full overflow-hidden border-4 border-ink bg-wood"
-      style={{ aspectRatio: `${ROOM_W} / ${ROOM_H}` }}
+      ref={boxRef}
+      className="flex h-full w-full min-h-0 items-center justify-center"
     >
       <div
-        className="absolute top-0 left-0"
-        style={{
-          width: ROOM_W,
-          height: ROOM_H,
-          transform: `scale(${scale})`,
-          transformOrigin: "top left",
-        }}
+        aria-hidden="true"
+        className="relative shrink-0 overflow-hidden border-4 border-ink bg-wood"
+        style={
+          fit === null
+            ? { width: "100%", aspectRatio: `${ROOM_W} / ${ROOM_H}` }
+            : {
+                width: ROOM_W * fit + BORDER * 2,
+                height: ROOM_H * fit + BORDER * 2,
+              }
+        }
       >
-        <RoomBackdrop />
+        <div
+          className="absolute top-0 left-0"
+          style={{
+            width: ROOM_W,
+            height: ROOM_H,
+            transform: `scale(${scale})`,
+            transformOrigin: "top left",
+          }}
+        >
+          <RoomBackdrop />
 
-        <Scenery
-          src="/sprites/window.png"
-          width={192}
-          height={96}
-          style={{ position: "absolute", left: 56, top: 56 }}
-        />
-        <Scenery
-          src="/sprites/plant.png"
-          width={112}
-          height={112}
-          style={{ position: "absolute", left: 36, bottom: 36 }}
-        />
-
-        <RoundHud
-          round={round}
-          roundsTotal={roundsTotal}
-          elapsedMs={elapsedMs}
-          live={live}
-        />
-
-        <Scenery
-          src="/sprites/table.png"
-          width={336}
-          height={112}
-          style={{ position: "absolute", left: 276, top: 372, zIndex: 2 }}
-        />
-
-        {(Object.keys(STAGE) as ParticipantId[]).map((id) => (
-          <Agent
-            key={id}
-            id={id}
-            speaking={currentSpeaker === id}
-            thinking={thinkingSpeaker === id}
-            names={names}
-            viewer={you}
+          <Scenery
+            src="/sprites/window.png"
+            width={192}
+            height={96}
+            style={{ position: "absolute", left: 56, top: 56 }}
           />
-        ))}
+          <Scenery
+            src="/sprites/plant.png"
+            width={112}
+            height={112}
+            style={{ position: "absolute", left: 36, bottom: 36 }}
+          />
 
-        {bubbles.map((bubble) => {
-          const anchor = BUBBLE_ANCHOR[bubble.speaker];
-          return (
-            <div
-              key={bubble.id}
-              className="absolute"
-              style={{
-                left: anchor.left,
-                bottom: ROOM_H - anchor.bottomY,
-                zIndex: 4,
-              }}
-            >
-              <SpeechBubble
-                text={bubble.text}
-                privateReasonKept={bubble.privateReasonKept}
-                tailLeft={anchor.tailLeft}
-                width={anchor.width}
-              />
-            </div>
-          );
-        })}
+          <RoundHud
+            round={round}
+            roundsTotal={roundsTotal}
+            elapsedMs={elapsedMs}
+            live={live}
+          />
+
+          <Scenery
+            src="/sprites/table.png"
+            width={336}
+            height={112}
+            style={{ position: "absolute", left: 276, top: 372, zIndex: 2 }}
+          />
+
+          {(Object.keys(STAGE) as ParticipantId[]).map((id) => (
+            <Agent
+              key={id}
+              id={id}
+              speaking={currentSpeaker === id}
+              thinking={thinkingSpeaker === id}
+              names={names}
+              viewer={you}
+            />
+          ))}
+
+          {bubbles.map((bubble) => {
+            const anchor = BUBBLE_ANCHOR[bubble.speaker];
+            return (
+              <div
+                key={bubble.id}
+                className="absolute"
+                style={{
+                  left: anchor.left,
+                  bottom: ROOM_H - anchor.bottomY,
+                  zIndex: 4,
+                }}
+              >
+                <SpeechBubble
+                  text={bubble.text}
+                  privateReasonKept={bubble.privateReasonKept}
+                  tailLeft={anchor.tailLeft}
+                  width={anchor.width}
+                />
+              </div>
+            );
+          })}
+        </div>
+
+        {children}
       </div>
-
-      {children}
     </div>
   );
 }
 
 /* -------------------------------------------------------------------------- */
 
-/** Measures the frame and reports the factor the fixed layer is drawn at. */
-function useFitScale(): [RefObject<HTMLDivElement | null>, number] {
+/**
+ * Measures the box the room is given and reports the factor the fixed layer is
+ * drawn at: whichever of width and height runs out first, so the room fits the
+ * window rather than only its column.
+ *
+ * Height only binds on the fixed-viewport layout. Below that breakpoint the
+ * page scrolls and the box is as tall as whatever it contains, which is the
+ * room itself — reading a height there would be measuring this function's own
+ * output, so width alone decides and the column scrolls as it always has.
+ *
+ * `null` until the first measurement, which is the server's render and the
+ * tick before hydration; the caller draws the width-driven box for that frame.
+ * The measurement is taken in a layout effect so the fitted size is in place
+ * before the browser paints.
+ */
+function useFitScale(): [RefObject<HTMLDivElement | null>, number | null] {
   const ref = useRef<HTMLDivElement>(null);
-  const [value, setValue] = useState(1);
+  const [value, setValue] = useState<number | null>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const node = ref.current;
     if (!node) return;
-    const observer = new ResizeObserver(([entry]) => {
-      if (entry) setValue(entry.contentRect.width / ROOM_W);
-    });
+    const fixedViewport = window.matchMedia(FIXED_VIEWPORT);
+
+    const measure = () => {
+      const byWidth = (node.clientWidth - BORDER * 2) / ROOM_W;
+      const byHeight = (node.clientHeight - BORDER * 2) / ROOM_H;
+      const fit = fixedViewport.matches ? Math.min(byWidth, byHeight) : byWidth;
+      setValue(Math.max(fit, 0));
+    };
+
+    measure();
+
+    const observer = new ResizeObserver(measure);
     observer.observe(node);
-    return () => observer.disconnect();
+    fixedViewport.addEventListener("change", measure);
+
+    return () => {
+      observer.disconnect();
+      fixedViewport.removeEventListener("change", measure);
+    };
   }, []);
 
   return [ref, value];

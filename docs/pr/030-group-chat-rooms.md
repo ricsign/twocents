@@ -1,4 +1,4 @@
-# PR #29 — feat: seed a room from a group chat, and let four people join it
+# PR #30 — feat: seed a room from a group chat, and let four people join it
 
 ## The gap
 

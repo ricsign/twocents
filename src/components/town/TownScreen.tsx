@@ -79,8 +79,12 @@ export function TownScreen({
   const hasPlan = canRun ? negotiation.plan !== null : watched.hasPlan;
 
   return (
-    <main className="grid min-h-0 flex-1 grid-cols-1 gap-8 px-4 pt-6 pb-8 sm:px-8 min-[1100px]:grid-cols-[minmax(0,1fr)_400px] min-[1100px]:gap-10 min-[1100px]:px-14 min-[1100px]:py-8">
-      <div className="relative min-w-0">
+    <main className="grid min-h-0 flex-1 grid-cols-1 gap-8 px-4 pt-6 pb-8 sm:px-8 min-[1100px]:grid-cols-[minmax(0,1fr)_400px] min-[1100px]:grid-rows-[minmax(0,1fr)] min-[1100px]:gap-10 min-[1100px]:px-14 min-[1100px]:py-8">
+      {/* A row that is exactly the viewport's leftover height, not the room's
+          natural one: the room reads this box and fits itself to it, and the
+          transcript column beside it scrolls inside it instead of running off
+          the bottom of a page that cannot scroll. */}
+      <div className="relative flex min-h-0 min-w-0">
         <Room
           currentSpeaker={negotiation.currentSpeaker}
           thinkingSpeaker={negotiation.thinkingSpeaker}
