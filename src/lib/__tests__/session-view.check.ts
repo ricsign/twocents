@@ -21,7 +21,7 @@
  * The assertions are deliberately made against `JSON.stringify` of the view
  * rather than against its fields. A field-by-field check proves the fields you
  * remembered to check; the serialized form is what actually goes down the wire,
- * so searching *it* for Sam's 1400 catches a leak through a field nobody thought
+ * so searching *it* for Will's 1400 catches a leak through a field nobody thought
  * about — a note copied into a mandate, a transcript riding along inside a
  * report, a `privateReasonKept` on someone else's turn.
  *
@@ -305,14 +305,14 @@ check("sam's view contains maya's public wants but not her number", () => {
   const view = sessionViewFor(SESSION, "sam");
   const maya = view.others.find((o) => o.participantId === "maya");
   assert.ok(maya, "maya should appear as one of the others");
-  assert.equal(maya.name, "Will");
+  assert.equal(maya.name, "Richard");
   assert.ok(maya.mandate.wants.includes("A beach every day"));
   assert.equal(wire("sam").includes("600"), false);
 });
 
 check("an unfinished session narrows without throwing", () => {
   const fresh = createSeedSession("fresh");
-  // Priya, not the demo user: hers is the seat the seed still fills.
+  // Tsai, not the demo user: hers is the seat the seed still fills.
   const view = sessionViewFor(fresh, "priya");
   assert.equal(view.plan, null);
   assert.equal(view.fairness, null);

@@ -4,8 +4,8 @@
  * The session object is the whole demo: four briefs, four real ceilings, four
  * private transcripts and four private reports. That is exactly the shape the
  * negotiation needs and exactly the shape no browser may ever see. Handing it
- * out over HTTP would mean one `curl` returns Maya's $600, Sam's credit card
- * note and Priya's sister's ticket — the product's entire claim, undone by the
+ * out over HTTP would mean one `curl` returns Richard's $600, Will's credit card
+ * note and Tsai's sister's ticket — the product's entire claim, undone by the
  * endpoint that feeds the screen that makes the claim.
  *
  * So the HTTP boundary narrows here, once. `GET /api/session` and every POST

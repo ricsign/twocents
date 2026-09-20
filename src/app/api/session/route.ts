@@ -53,7 +53,7 @@ export const dynamic = "force-dynamic";
  * rather than complaining about all four.
  *
  * `viewer` is optional on every action and defaults to the demo user, so the
- * screens that only ever speak for Maya do not have to say so twice.
+ * screens that only ever speak for Richard do not have to say so twice.
  */
 const requestSchema = z.discriminatedUnion("action", [
   z.object({
@@ -178,7 +178,7 @@ export async function GET(request: Request): Promise<Response> {
   const url = new URL(request.url);
 
   // An unknown viewer is a typo, not a guest: 400 rather than quietly handing
-  // back Maya's view of a session the caller asked about as someone else.
+  // back Richard's view of a session the caller asked about as someone else.
   const viewer = participantIdSchema.safeParse(
     url.searchParams.get("viewer") ?? DEFAULT_VIEWER,
   );

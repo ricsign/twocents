@@ -709,7 +709,7 @@ export function buildScenario(hints: OfflineHints): Scenario {
    *
    * Enough of each person's wants to clear the fairness threshold, and for the
    * opener, everything *except* their headline want — that one is the price of
-   * the plan, the same shape the seeded run has where Sam loses the resort and
+   * the plan, the same shape the seeded run has where Will loses the resort and
    * keeps the rest. Six at most, because this list is printed as ticks on the
    * plan screen and a longer one stops reading as a plan.
    */

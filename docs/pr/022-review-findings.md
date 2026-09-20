@@ -57,7 +57,7 @@ B's `plan` beside run A's `fairness` and `reports`.
 Plus four smaller ones: `row.wantsTotal || SLOTS` rendering a seat that asked
 for nothing as "0 of 5 wants kept" next to a correctly green "Nobody
 overruled"; the speed buttons highlighting and doing nothing on a run that was
-painted rather than streamed; `"- Will: wants ; on money they are …"` reaching
+painted rather than streamed; `"- Richard: wants ; on money they are …"` reaching
 a live negotiation prompt; and the briefed roster printing a tick beside every
 name but your own whatever the data said.
 

@@ -37,7 +37,7 @@ on stage than one that speaks cleanly.
 Captured byte-for-byte before the change and asserted identical after: all
 eight lines, both offers, the plan, the runner-up and the fairness rows. The
 golden is frozen into the check file. The seed marker tests `tripName` only,
-deliberately not a fingerprint over the briefs — the demo rewrites Maya's
+deliberately not a fingerprint over the briefs — the demo rewrites Richard's
 brief live at 0:15, and a brief-based check would stop matching exactly when
 the demo is most exposed.
 
@@ -45,13 +45,13 @@ the demo is most exposed.
 
 Four seats at $25 / $35 / $45 / $95, topic "Dinner tonight":
 
-> **Sam proposes** — The steakhouse on the corner. $75 a head, the one place
+> **Will proposes** — The steakhouse on the corner. $75 a head, the one place
 > worth putting a jacket on for.
-> **Priya pushes back** — That one's a stretch for me, and I'd rather not be
+> **Tsai pushes back** — That one's a stretch for me, and I'd rather not be
 > the reason we don't go.
-> **Maya counters** — The little trattoria off the main street. Around $18 a
+> **Richard counters** — The little trattoria off the main street. Around $18 a
 > head, and we keep real vegetarian food and a proper bar.
-> **Jordan agrees** — A proper bar is in. Book it.
+> **Angela agrees** — A proper bar is in. Book it.
 
 Agreed $18, under the lowest ceiling. No line contains 25, 35, 45 or 95. The
 engine's guard caught zero leaks because there were none to catch. A "night

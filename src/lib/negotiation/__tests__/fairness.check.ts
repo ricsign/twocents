@@ -84,7 +84,7 @@ function plan(overrides: Partial<Plan> = {}): Plan {
   };
 }
 
-/** Maya asked for four things and privately capped herself at $600. */
+/** Richard asked for four things and privately capped herself at $600. */
 const MAYA_WANTS = [
   "beach days",
   "direct flights",
@@ -143,7 +143,7 @@ function gaveUpOf(report: FairnessReport, id: ParticipantId): string {
 /* The happy plan                                                              */
 /* -------------------------------------------------------------------------- */
 
-check("a plan honouring everything gives Maya 5/5 and nobody is overruled", () => {
+check("a plan honouring everything gives Richard 5/5 and nobody is overruled", () => {
   const report = scoreFairness(briefs(), plan(), TURNS);
   const maya = rowFor(report, "maya");
   // Four stated wants plus the implicit budget ceiling.
@@ -177,7 +177,7 @@ check("a plan over one person's ceiling flips nobodyOverruled to false", () => {
   assert.equal(sam.wantsKept, 2);
   assert.equal(sam.gaveUp, "gave up staying under budget");
   assert.equal(report.nobodyOverruled, false);
-  assert.equal(fairnessSummaryLine(report), "Richard gave up the most");
+  assert.equal(fairnessSummaryLine(report), "Will gave up the most");
 });
 
 check("gaveUp never names the figure it is about", () => {
@@ -330,7 +330,7 @@ check("gaveUp prefers the want the person actually argued for", () => {
     plan(),
     TURNS,
   );
-  // Both are unmet, but only the resort shows up in Sam's own transcript lines,
+  // Both are unmet, but only the resort shows up in Will's own transcript lines,
   // so the resort is the one named — the hostel would render differently.
   assert.equal(rowFor(report, "sam").gaveUp, "gave up a beach resort with a pool");
 });
@@ -368,7 +368,7 @@ check("the 60% threshold is what decides nobodyOverruled", () => {
   );
   assert.equal(rowFor(oneOfFive, "maya").wantsKept, 1);
   assert.equal(oneOfFive.nobodyOverruled, false);
-  assert.equal(fairnessSummaryLine(oneOfFive), "Will gave up the most");
+  assert.equal(fairnessSummaryLine(oneOfFive), "Richard gave up the most");
 });
 
 /* -------------------------------------------------------------------------- */

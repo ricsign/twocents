@@ -322,9 +322,9 @@ function hintsWithOneUnknownCeiling(): OfflineHints {
     priceCap: 1500,
     people: [
       // Seat zero, and the one the human sits in: nothing said at all.
-      { participantId: "maya", name: "Will", want: "", wants: [], ceiling: null },
+      { participantId: "maya", name: "Richard", want: "", wants: [], ceiling: null },
       { participantId: "jordan", name: "Angela", want: "a city with nightlife", wants: ["a city with nightlife"], ceiling: 900 },
-      { participantId: "sam", name: "Richard", want: "a resort on the beach", wants: ["a resort on the beach"], ceiling: 1400 },
+      { participantId: "sam", name: "Will", want: "a resort on the beach", wants: ["a resort on the beach"], ceiling: 1400 },
       { participantId: "priya", name: "Tsai", want: "somewhere with no passport", wants: ["somewhere with no passport"], ceiling: 1100 },
     ],
     offerIds: [],
@@ -386,9 +386,9 @@ function hintsWithBlankFields(): OfflineHints {
     nights: null,
     priceCap: 1500,
     people: [
-      { participantId: "maya", name: "Will", want: "", wants: [], ceiling: 1400 },
+      { participantId: "maya", name: "Richard", want: "", wants: [], ceiling: 1400 },
       { participantId: "jordan", name: "Angela", want: "a city with nightlife", wants: ["a city with nightlife"], ceiling: 900 },
-      { participantId: "sam", name: "Richard", want: "", wants: [], ceiling: 800 },
+      { participantId: "sam", name: "Will", want: "", wants: [], ceiling: 800 },
       { participantId: "priya", name: "Tsai", want: "somewhere with no passport", wants: ["somewhere with no passport"], ceiling: 1100 },
     ],
     offerIds: [],

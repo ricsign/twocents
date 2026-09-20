@@ -2,7 +2,7 @@
  * The demo's starting state.
  *
  * The script in the project spec opens with three agents already briefed and
- * Maya's left empty, so the first thing a judge watches is a human briefing an
+ * Richard's left empty, so the first thing a judge watches is a human briefing an
  * agent live. Everything here is therefore written to be *read out loud*: the
  * briefs carry the texture of four people who each want something different and
  * exactly one of whom has to give up the thing they came in for.
@@ -12,7 +12,7 @@
  *
  * - **The ceilings decide the outcome.** The $600 in `SAMPLE_BRIEF` is the
  *   lowest and it is private, so the room can only ever land somewhere under it
- *   without anyone saying why. Sam's $1,400 is the highest, which is why his
+ *   without anyone saying why. Will's $1,400 is the highest, which is why his
  *   agent opens with the expensive option and why he is the one who ends up
  *   trading it away. The seated version of that person starts blank, so a run
  *   made before they say anything is a three-ceiling room, not a broken one.
@@ -88,7 +88,7 @@ export function isSeedScenario(session: Pick<DemoSession, "scripted">): boolean 
  *
  * These are the values the "personality flip" beat starts from: the demo drags
  * one agent from easygoing to stubborn and reruns, so the interesting positions
- * are the ones with room to move. Priya sits low on stubborn on purpose — she
+ * are the ones with room to move. Tsai sits low on stubborn on purpose — she
  * is the agent a judge can flip and visibly change the outcome.
  */
 export const SEED_PERSONALITIES: Record<ParticipantId, Personality> = {
@@ -132,7 +132,7 @@ function line(role: BriefMessage["role"], text: string): BriefMessage {
 }
 
 /**
- * Sam wants the resort and has the room to pay for it.
+ * Will wants the resort and has the room to pay for it.
  *
  * He is the engine's opener (his price stance is the highest in the room, so
  * `SPEAKING_ORDER` puts the expensive option on the table first) and he is the
@@ -169,10 +169,10 @@ const SAM_BRIEF: Brief = {
 };
 
 /**
- * Jordan's hill is the catamaran day.
+ * Angela's hill is the catamaran day.
  *
  * Stubborn and blunt, mid budget: his agent is the one that refuses to trade the
- * boat day, which is what forces Sam's agent to trade the resort instead. That
+ * boat day, which is what forces Will's agent to trade the resort instead. That
  * chain is the whole negotiation, so the catamaran is his first want and it has
  * to be a want the plan can actually satisfy.
  */
@@ -200,7 +200,7 @@ const JORDAN_BRIEF: Brief = {
 };
 
 /**
- * Priya is the flexible one, which is what makes the plan possible.
+ * Tsai is the flexible one, which is what makes the plan possible.
  *
  * Everything she asked for is satisfied by Puerto Rico on its own — no passport,
  * no early flight, a beach every day — so her agent spends its turns backing

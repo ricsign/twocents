@@ -17,7 +17,7 @@ acknowledges it without repeating it. This is the beat the whole demo turns on.
   dark **Real budget** row with its lock and "Never said out loud.", and
   Dealbreaker.
 - **`src/components/brief/BriefedRoster.tsx`** — the four portraits, ticks for
-  the briefed, "You" for Maya.
+  the briefed, "You" for Richard.
 - **`src/components/brief/BriefScreen.tsx`** — owns the shared brief state so
   `page.tsx` can stay a server component, and swallows a failed request into
   the scripted reply rather than showing the room an error.

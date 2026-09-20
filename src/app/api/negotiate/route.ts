@@ -309,8 +309,8 @@ function streamNegotiation(params: RunParams, signal: AbortSignal): Response {
  * Who this stream is for, or `null` if the caller named somebody who isn't here.
  *
  * Absent means the demo user, matching `/api/session`: the town screen only ever
- * watches as Maya and should not have to say so. An unrecognised name is a typo
- * rather than a guest, and the 400 below is better than quietly opening Maya's
+ * watches as Richard and should not have to say so. An unrecognised name is a typo
+ * rather than a guest, and the 400 below is better than quietly opening Richard's
  * stream for a caller who asked to be someone else.
  */
 function parseViewer(raw: unknown): ParticipantId | null {

@@ -31,11 +31,11 @@ Defined in `src/app/globals.css` under `@theme`, so Tailwind exposes them as
 | `paper` | `#FFFFFF` | Speech bubbles, inputs, agent messages |
 | `gold` | `#F2B84B` | Accent on dark, current step, logo |
 | `gold-deep` | `#B07A1B` | Coin shading |
-| `coral` | `#E2593F` | Primary action, "you" messages, Maya |
+| `coral` | `#E2593F` | Primary action, "you" messages, Richard |
 | `rust` / `rust-deep` | `#B8432B` / `#8F3220` | Links, "pushes back" label |
-| `leaf` / `leaf-deep` | `#5C9E4A` / `#3D7A34` | Done pips, checks, Sam |
-| `sky` | `#3B82C4` | Focus rings, Jordan |
-| `plum` | `#8B5CC7` | Priya |
+| `leaf` / `leaf-deep` | `#5C9E4A` / `#3D7A34` | Done pips, checks, Will |
+| `sky` | `#3B82C4` | Focus rings, Angela |
+| `plum` | `#8B5CC7` | Tsai |
 | `bark` | `#7A5A3A` | Muted labels and captions |
 | `sand` / `cream-dim` | `#B9A98B` / `#E9DCC0` | Muted text on dark |
 | `wood` / `wood-deep` / `wall` | `#B5804A` / `#8A5A32` / `#D9B98C` | The room |

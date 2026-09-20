@@ -244,7 +244,7 @@ function voicePreview(req: CompletionRequest): string {
 /* 3. Offers and the negotiation script                                        */
 /* -------------------------------------------------------------------------- */
 
-/** Richard's opener: the plan that loses, kept in full so the transcript reads real. */
+/** Will's opener: the plan that loses, kept in full so the transcript reads real. */
 const CANCUN_OFFER = {
   id: "offer-cancun",
   destination: "Cancun",
@@ -515,7 +515,7 @@ const FINAL_PLAN = {
 } as const;
 
 /**
- * One private debrief per person, matching `design/04-plan.clean.html`. Will's
+ * One private debrief per person, matching `design/04-plan.clean.html`. Richard's
  * is the one the demo reads out loud, so it names the saving without ever
  * having said the ceiling in the room.
  */
@@ -524,7 +524,7 @@ const REPORTS: Record<ParticipantId, Record<string, unknown>> = {
     participantId: "maya",
     gotYou: "$540 a head, $60 under your number. Nothing before 11am. A beach every day.",
     tradedAway:
-      "The nicer hotel. Richard wanted the resort; you get a clean 3-star two blocks from the water.",
+      "The nicer hotel. Will wanted the resort; you get a clean 3-star two blocks from the water.",
     why: "Angela’s agent wouldn’t budge on the catamaran, so I gave up the hotel to protect your budget. Nobody heard your number.",
     secretsKept: ["$600 budget"],
   },
@@ -532,7 +532,7 @@ const REPORTS: Record<ParticipantId, Record<string, unknown>> = {
     participantId: "jordan",
     gotYou: "The catamaran day, in writing, and a flight nobody has to set an alarm for.",
     tradedAway: "Cancun. You wanted the strip; this is quieter and $640 cheaper.",
-    why: "Richard’s agent traded the resort to keep the boat day, so I spent that goodwill on the one thing you said you’d be annoyed to lose.",
+    why: "Will’s agent traded the resort to keep the boat day, so I spent that goodwill on the one thing you said you’d be annoyed to lose.",
     secretsKept: [],
   },
   sam: {
@@ -546,7 +546,7 @@ const REPORTS: Record<ParticipantId, Record<string, unknown>> = {
     participantId: "priya",
     gotYou: "No passport, no early flight, and a day out on Culebra. Everything you asked for.",
     tradedAway: "Nothing. You came in the cheapest to satisfy and it cost you no ground.",
-    why: "Puerto Rico cleared your no-passport rule on its own, so I spent my turns backing Will’s number instead of pushing for you.",
+    why: "Puerto Rico cleared your no-passport rule on its own, so I spent my turns backing Richard’s number instead of pushing for you.",
     secretsKept: [],
   },
 };
