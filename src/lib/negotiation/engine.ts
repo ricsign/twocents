@@ -160,8 +160,12 @@ const REPORT_MAX_TOKENS = 500;
  * Derived from `PRICE_STANCE_BANDS` rather than restating it: the stance is the
  * sayable form of a ceiling, so the ceiling of a stance is the top of the band
  * it came from. "Happy to splurge" has no ceiling worth modelling.
+ *
+ * Exported for the check suites, which have to be able to say "this room's
+ * options are all over what these four can be asked to pay" without writing
+ * the figure down a second time and letting the two copies drift.
  */
-const STANCE_CEILING: Record<PriceStance, number> = {
+export const STANCE_CEILING: Record<PriceStance, number> = {
   "must be cheap": 850,
   "prefers value": 1500,
   flexible: 2600,
@@ -296,6 +300,33 @@ export function violatesDealbreaker(offer: Offer, dealbreaker: string): boolean 
 }
 
 /**
+ * The most this room can ask of anyone, per person.
+ *
+ * The tightest stance at the table, because an option is only affordable for
+ * the room when it is affordable for its least flexible seat. Read off the
+ * public stances rather than the briefs: this is the same information the
+ * agents themselves argued from, so an offer that clears it is one they could
+ * all have said yes to honestly.
+ */
+function lowestStanceCeiling(mandates: readonly PublicMandate[]): number {
+  return mandates.reduce(
+    (lowest, mandate) => Math.min(lowest, STANCE_CEILING[mandate.priceStance]),
+    Number.POSITIVE_INFINITY,
+  );
+}
+
+/**
+ * Whether the room is still allowed to settle on this offer.
+ *
+ * A price the web says does not exist is not something the room gets to
+ * agree to, however enthusiastically it agreed. An unchecked offer counts as
+ * bookable: nothing has contradicted it.
+ */
+function isBookable(offer: Offer): boolean {
+  return offer.feasibility?.bookable !== false;
+}
+
+/**
  * The convergence rule, in full.
  *
  * An offer is accepted when three things hold at once:
@@ -325,10 +356,7 @@ function findConvergedOffer(
 ): Offer | null {
   if (offers.length === 0) return null;
 
-  const stanceCeiling = mandates.reduce(
-    (lowest, mandate) => Math.min(lowest, STANCE_CEILING[mandate.priceStance]),
-    Number.POSITIVE_INFINITY,
-  );
+  const stanceCeiling = lowestStanceCeiling(mandates);
 
   // Most recent first: the room converges on where it just got to, not on the
   // opening bid it spent four rounds arguing down.
@@ -336,10 +364,7 @@ function findConvergedOffer(
     const offer = offers[i] as Offer;
 
     if (offer.perPerson > stanceCeiling) continue;
-
-    // A price the web says does not exist is not something the room gets to
-    // settle on, however enthusiastically it agreed.
-    if (offer.feasibility?.bookable === false) continue;
+    if (!isBookable(offer)) continue;
 
     const breaksSomething = PARTICIPANT_IDS.some((participantId) => {
       const brief = briefs[participantId];
@@ -369,6 +394,48 @@ function findConvergedOffer(
 function roomAssented(turns: readonly NegotiationTurn[], roomSize: number): boolean {
   if (roomSize === 0 || turns.length < roomSize) return false;
   return turns.slice(-roomSize).every((turn) => turn.kind === "agrees");
+}
+
+/**
+ * What the room settled on when the whole table assented to something the
+ * convergence rule had not accepted.
+ *
+ * It answers a different question from `findConvergedOffer` — that one asks
+ * "may they agree to this?", this one asks "they have agreed, to what?" — but
+ * it answers it under the same affordability rule, because the alternative is
+ * the bug this function was written for: the fallback used to take the most
+ * recent bookable offer at any price, and a $1,200 week duly settled a room
+ * with two "must be cheap" seats in it.
+ *
+ * So: the latest offer the room's tightest stance can actually carry. When
+ * nothing on the table clears it, the cheapest bookable one — the table did
+ * say yes to something, and ending a demo with no plan is worse than ending
+ * it with an expensive one. That is the honest outcome rather than a good
+ * one, and it is scored as such: `scoreFairness` will report the broken
+ * ceilings, and the plan screen's headline is built from that report rather
+ * than from a claim.
+ *
+ * Ties go to the offer proposed first, so two runs of one session settle the
+ * same way.
+ */
+function assentedOffer(
+  offers: readonly Offer[],
+  mandates: readonly PublicMandate[],
+): Offer | null {
+  const bookable = offers.filter(isBookable);
+  if (bookable.length === 0) return null;
+
+  const stanceCeiling = lowestStanceCeiling(mandates);
+  for (let i = bookable.length - 1; i >= 0; i -= 1) {
+    const offer = bookable[i] as Offer;
+    if (offer.perPerson <= stanceCeiling) return offer;
+  }
+
+  let cheapest = bookable[0] as Offer;
+  for (const offer of bookable) {
+    if (offer.perPerson < cheapest.perPerson) cheapest = offer;
+  }
+  return cheapest;
 }
 
 /** A plan-shaped view of one offer, for scoring it before anyone has agreed. */
@@ -451,10 +518,7 @@ function buildOfflineHints(
     });
   }
 
-  const priceCap = mandates.reduce(
-    (lowest, mandate) => Math.min(lowest, STANCE_CEILING[mandate.priceStance]),
-    Number.POSITIVE_INFINITY,
-  );
+  const priceCap = lowestStanceCeiling(mandates);
 
   // When the trip happens, taken from whoever actually said so rather than
   // from seat zero. Seat zero is always the person at the keyboard, and their
@@ -956,16 +1020,15 @@ export async function* runNegotiation(
 
       // A room can also settle in a way that rule cannot see: everyone in this
       // rotation said "agrees" and nobody put anything new up. The arithmetic
-      // may still be holding out — a stance ceiling or a fairness row can
-      // object after the table itself has stopped arguing — but spending the
-      // remaining rounds then buys nothing except agents agreeing again, which
-      // is both dead screen time and four model calls a round. The offer they
-      // are agreeing to is the one they have been talking about: the leading
-      // one. If none exists there is nothing to have agreed to, and the loop
-      // carries on.
+      // may still be holding out — a fairness row can object after the table
+      // itself has stopped arguing — but spending the remaining rounds then
+      // buys nothing except agents agreeing again, which is both dead screen
+      // time and four model calls a round. What it must not buy is a plan
+      // nobody can pay for, so `assentedOffer` holds the same affordability
+      // rule the primary one does. If there is nothing bookable on the table
+      // there is nothing to have agreed to, and the loop carries on.
       if (converged === null && roomAssented(turns, order.length)) {
-        converged =
-          [...offers].reverse().find((offer) => offer.feasibility?.bookable !== false) ?? null;
+        converged = assentedOffer(offers, mandates);
       }
 
       // Announced here, from what is already in hand, rather than after the

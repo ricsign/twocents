@@ -46,7 +46,8 @@ import {
   scenarioTurn,
   type OfflineHints,
 } from "@/lib/llm/scenario";
-import { runNegotiation } from "@/lib/negotiation/engine";
+import { STANCE_CEILING, runNegotiation } from "@/lib/negotiation/engine";
+import { GAVE_UP_BUDGET } from "@/lib/negotiation/fairness";
 import { checkForLeaks } from "@/lib/negotiation/redaction";
 import {
   SAMPLE_BRIEF,
@@ -61,6 +62,7 @@ import {
   type DemoSession,
   type NegotiationEvent,
   type ParticipantState,
+  type TurnKind,
 } from "@/lib/types";
 
 
@@ -221,6 +223,71 @@ class GatedProvider implements LLMProvider {
 
   private finish(tag: TaskTag): void {
     if (tag === this.gate) this.finished += 1;
+  }
+}
+
+/** One line of a hand-written room, as the engine's turn schema wants it. */
+interface ScriptedLine {
+  kind: TurnKind;
+  text: string;
+  /** An `offerDraftSchema` shape: everything but `proposedBy` and the verdict. */
+  offer?: Record<string, unknown>;
+}
+
+/**
+ * A room whose public lines are written here rather than generated.
+ *
+ * The canned generator is built to land on something everybody can afford,
+ * which is the one run this cannot be: the rule under test is what the engine
+ * does when the whole table says yes to an option nobody's stance covers. So
+ * `negotiation-turn` is answered from a script and every other call still goes
+ * to `OfflineProvider`, which keeps the price checks, the write-up and the
+ * four reports on the same rails as the rest of this file.
+ *
+ * The script is indexed by call rather than by speaker, which is exact as long
+ * as no line is ever generated twice: the engine re-asks when an agent repeats
+ * itself verbatim, and a second call for one seat would shift every line after
+ * it. Each line below is therefore unique.
+ */
+class ScriptedRoomProvider implements LLMProvider {
+  readonly name = "offline-scripted-room";
+  readonly live = false;
+
+  private readonly inner = new OfflineProvider();
+  private readonly lines: readonly ScriptedLine[];
+  private spoken = 0;
+
+  constructor(lines: readonly ScriptedLine[]) {
+    this.lines = lines;
+  }
+
+  async text(req: CompletionRequest): Promise<CompletionResult<string>> {
+    return this.inner.text(req);
+  }
+
+  async json<T>(
+    req: CompletionRequest,
+    schema: z.ZodType<T>,
+  ): Promise<CompletionResult<T>> {
+    if (req.tag !== "negotiation-turn") return this.inner.json(req, schema);
+
+    const index = this.spoken;
+    this.spoken += 1;
+    // Past the end of the script the table keeps assenting, which is what the
+    // fallback under test keys off. Numbered so no two lines are identical.
+    const line: ScriptedLine = this.lines[index] ?? {
+      kind: "agrees",
+      text: `Still a yes here, and that is line ${index + 1}.`,
+    };
+
+    const parsed = schema.safeParse(line);
+    if (!parsed.success) throw new Error(`scripted line ${index} is not a turn draft`);
+    return {
+      value: parsed.data,
+      raw: JSON.stringify(line),
+      usage: { ...EMPTY_USAGE, calls: 1, model: ["scripted"] },
+      sources: [],
+    };
   }
 }
 
@@ -443,6 +510,63 @@ async function assertGeneratedRunIsSound(
   const texts = spoken.map((turn) => turn.text);
   assert.equal(new Set(texts).size, texts.length, `${label}: a line was repeated verbatim`);
 }
+
+/* -------------------------------------------------------------------------- */
+/* 2b. A table that says yes to what it cannot pay for                         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Four seats that all read as "must be cheap", so the room has one stance
+ * ceiling and every option below is plainly over it.
+ */
+const OVER_CEILING_SEATS: readonly Seat[] = [
+  { participantId: "maya", want: "a beach we can afford", wants: ["a beach"], budget: 600 },
+  { participantId: "jordan", want: "somewhere with a night out", wants: ["a night out"], budget: 620 },
+  { participantId: "sam", want: "a room with a view", wants: ["a view"], budget: 580 },
+  { participantId: "priya", want: "somewhere warm and quiet", wants: ["somewhere quiet"], budget: 640 },
+];
+
+/** The shape every option in this room shares; only the name and price move. */
+function overCeilingOffer(
+  id: string,
+  destination: string,
+  perPerson: number,
+): Record<string, unknown> {
+  return {
+    id,
+    destination,
+    region: "the coast",
+    dates: "Mar 14–19",
+    nights: 5,
+    perPerson,
+    highlights: ["Beach every day", "A kitchen", "Five nights"],
+    flightNote: "Direct both ways, nothing early",
+    lodgingNote: "A place with a kitchen, ten minutes from the water",
+  };
+}
+
+/**
+ * The room the fallback exists for: two options, both past what any of these
+ * four can be asked to pay, and a table that says yes to them anyway.
+ *
+ * The expensive one is proposed *second* on purpose. "The most recent bookable
+ * offer" and "the cheapest bookable offer" are the same answer in most rooms,
+ * and this is the one ordering that tells the two rules apart.
+ */
+const OVER_CEILING_ROOM: readonly ScriptedLine[] = [
+  {
+    kind: "proposes",
+    text: "Sandbar Key, five nights, a kitchen and a beach. It is a stretch, but it is the cheapest thing that works.",
+    offer: overCeilingOffer("offer-sandbar", "Sandbar Key", 950),
+  },
+  {
+    kind: "counters",
+    text: "Cliff Harbour is the nicer week if we are stretching anyway. Same dates, same flights.",
+    offer: overCeilingOffer("offer-cliff", "Cliff Harbour", 1200),
+  },
+  { kind: "agrees", text: "Either of those is fine by me. Pick one and I am in." },
+  { kind: "agrees", text: "Same here. I will go with whatever the rest of you land on." },
+];
 
 /* -------------------------------------------------------------------------- */
 /* 3. The seat that has said nothing                                           */
@@ -895,6 +1019,73 @@ async function main(): Promise<void> {
       done.plan.offer.feasibility,
       "the room settled on an offer whose check never landed on it",
     );
+  });
+
+  // A whole table can say yes to something none of them can pay for. The
+  // fallback that catches that used to take the most recent bookable offer
+  // whatever it cost, which is how a $1,200 plan settled a room of "must be
+  // cheap" seats — and the plan screen then printed "inside everyone's real
+  // budget" above a meter saying three of them went over.
+  await check("a table that assents over every ceiling settles on the cheapest", async () => {
+    const session = judgesSession("The grad trip", "Mar 14–19", OVER_CEILING_SEATS);
+    const events: NegotiationEvent[] = [];
+    for await (const event of runNegotiation({
+      session,
+      provider: new ScriptedRoomProvider(OVER_CEILING_ROOM),
+    })) {
+      events.push(event);
+    }
+
+    // The premise, asserted rather than assumed: every seat is "must be cheap"
+    // and neither option is inside that stance.
+    const cheap = STANCE_CEILING["must be cheap"];
+    for (const seat of OVER_CEILING_SEATS) {
+      assert.ok(seat.budget <= cheap, `${seat.participantId} does not read as a cheap seat`);
+    }
+    const offered = events
+      .filter((event): event is Extract<NegotiationEvent, { type: "offer" }> => event.type === "offer")
+      .map((event) => event.offer);
+    assert.equal(offered.length, 2, "the scripted room put a different number of options up");
+    for (const offer of offered) {
+      assert.ok(offer.perPerson > cheap, `${offer.id} is not over the stance ceiling`);
+      assert.notEqual(offer.feasibility?.bookable, false, `${offer.id} was ruled out as unbookable`);
+    }
+
+    const agreed = events.find(
+      (event): event is Extract<NegotiationEvent, { type: "agreed" }> => event.type === "agreed",
+    );
+    assert.ok(agreed, "the room never agreed");
+
+    // Nothing on the table clears the ceiling, so the cheapest bookable option
+    // is the one the room is held to — not the last one anybody mentioned.
+    assert.equal(
+      agreed.plan.offer.id,
+      "offer-sandbar",
+      `the assent fallback took ${agreed.plan.offer.id} at $${agreed.plan.offer.perPerson}pp`,
+    );
+    assert.equal(agreed.plan.offer.perPerson, 950);
+
+    // And the screen must not be able to call that clean. `PlanHeadline` earns
+    // its budget line from these two facts.
+    assert.equal(
+      agreed.fairness.nobodyOverruled,
+      false,
+      "a plan over every stated ceiling was scored as overruling nobody",
+    );
+    const overBudget = agreed.fairness.rows.filter((row) => row.gaveUp === GAVE_UP_BUDGET);
+    assert.equal(
+      overBudget.length,
+      OVER_CEILING_SEATS.length,
+      "the meter did not name the budget as what each of them gave up",
+    );
+
+    const done = events.find(
+      (event): event is Extract<NegotiationEvent, { type: "done" }> => event.type === "done",
+    );
+    assert.ok(done, "the run never finished");
+    assert.ok(done.plan, "the terminal frame carried no written-up plan");
+    assert.equal(done.plan.offer.id, agreed.plan.offer.id, "the write-up changed the trip");
+    assert.equal(done.fairness.nobodyOverruled, false);
   });
 
   await check("a generated run is deterministic", async () => {
