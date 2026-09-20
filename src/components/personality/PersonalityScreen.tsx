@@ -86,7 +86,9 @@ export function PersonalityScreen({
         const res = await fetch("/api/voice", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ personality }),
+          // The same noun the instant line argues against, so the upgrade
+          // reads as a better version of it rather than a different subject.
+          body: JSON.stringify({ personality, contested: topic.contested }),
           signal,
         });
         if (!res.ok) return;

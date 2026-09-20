@@ -1,7 +1,14 @@
 import Link from "next/link";
 import { CoinIcon } from "@/components/ui/PixelIcons";
 import { CharacterSprite } from "@/components/ui/Sprite";
-import { CHARACTER_LIST, CHARACTERS, PARTICIPANT_IDS, YOU } from "@/lib/characters";
+import {
+  CHARACTER_LIST,
+  PARTICIPANT_IDS,
+  YOU,
+  displayNameFor,
+} from "@/lib/characters";
+import { getOrCreateDefault } from "@/lib/session";
+import { displayNamesOf } from "@/lib/types";
 
 /**
  * The title screen, which now has a job beyond looking good.
@@ -17,11 +24,15 @@ import { CHARACTER_LIST, CHARACTERS, PARTICIPANT_IDS, YOU } from "@/lib/characte
  * cards, one button. It is not a landing page and must not grow into one.
  */
 
-/** Read from the cast rather than the session: this page is static on purpose. */
-const YOUR_NAME = CHARACTERS[YOU].name;
-const OTHER_NAMES = PARTICIPANT_IDS.filter((id) => id !== YOU).map(
-  (id) => CHARACTERS[id].name,
-);
+/**
+ * The names come from the session, not the cast.
+ *
+ * A judges' round renames all four seats, and this is the screen people come
+ * back to between rounds. Rendering it per request costs the app its one
+ * static page and buys a title screen that never introduces a judge to
+ * somebody who is not in the room any more.
+ */
+export const dynamic = "force-dynamic";
 
 const STEPS: { n: number; name: string; gloss: string }[] = [
   { n: 1, name: "BRIEF", gloss: "Tell your agent the truth, real budget included." },
@@ -31,6 +42,12 @@ const STEPS: { n: number; name: string; gloss: string }[] = [
 ];
 
 export default function TitleScreen() {
+  const names = displayNamesOf(getOrCreateDefault());
+  const yourName = displayNameFor(names, YOU);
+  const otherNames = PARTICIPANT_IDS.filter((id) => id !== YOU).map((id) =>
+    displayNameFor(names, id),
+  );
+
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-8 bg-parchment px-6 py-12">
       <div className="flex items-center gap-4">
@@ -54,14 +71,16 @@ export default function TitleScreen() {
               className="disp px-2 py-1 text-[7px] text-white"
               style={{ background: c.color }}
             >
-              {c.id === YOU ? `${c.name.toUpperCase()} · YOU` : c.name.toUpperCase()}
+              {c.id === YOU
+                ? `${displayNameFor(names, c.id).toUpperCase()} · YOU`
+                : displayNameFor(names, c.id).toUpperCase()}
             </div>
           </div>
         ))}
       </div>
 
       <p className="max-w-[620px] text-center text-[15px] font-semibold text-bark">
-        You are {YOUR_NAME}. {OTHER_NAMES.join(", ")} have already briefed their
+        You are {yourName}. {otherNames.join(", ")} have already briefed their
         agents in private. Yours is waiting to hear from you.
       </p>
 

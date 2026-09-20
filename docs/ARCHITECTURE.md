@@ -32,6 +32,8 @@ src/
       redaction.ts        the secret guard
       fairness.ts         scoring
     session.ts            in-memory store
+    session-writes.ts     the two edits that invalidate a finished run
     session-view.ts       the one HTTP narrowing: a session, as one person
+    flow.ts               has this person briefed their agent yet
 ```
 
