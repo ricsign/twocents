@@ -10,10 +10,12 @@
  * Two constraints shaped the numbers below, and changing either will move the
  * plan screen:
  *
- * - **The ceilings decide the outcome.** Maya's $600 is the lowest and it is
- *   private, so the room can only ever land somewhere under it without anyone
- *   saying why. Sam's $1,400 is the highest, which is why his agent opens with
- *   the expensive option and why he is the one who ends up trading it away.
+ * - **The ceilings decide the outcome.** The $600 in `SAMPLE_BRIEF` is the
+ *   lowest and it is private, so the room can only ever land somewhere under it
+ *   without anyone saying why. Sam's $1,400 is the highest, which is why his
+ *   agent opens with the expensive option and why he is the one who ends up
+ *   trading it away. The seated version of that person starts blank, so a run
+ *   made before they say anything is a three-ceiling room, not a broken one.
  * - **Four stated wants plus the private ceiling is what the meter counts.**
  *   `scoreFairness` appends a row for the budget whenever a brief carries one,
  *   so four wants is what makes the fairness bars read "n of 5" the way
@@ -55,17 +57,18 @@ export const TRIP_NAME = "Grad Trip ’27";
 export const SEED_SCENARIO_ID = "seed-grad-trip";
 
 /**
- * True for a session that came out of `createSeedSession`, including after a
- * RESET.
+ * True for a session that is still the untouched seeded script.
  *
- * The trip name is the whole test, and deliberately so. It is the one field the
- * seeded demo never edits — the briefing screen rewrites Maya's brief live at
- * 0:15 of the script, so a fingerprint taken over the briefs would stop matching
- * exactly when the demo is most exposed — while `/api/judges` always replaces it
- * with the judge's own topic.
+ * It reads one field, `scripted`, because the question is not "does this look
+ * like the seed" but "has anybody changed what these agents know". The trip
+ * name used to stand in for that and could not answer it: the main flow never
+ * touches the trip name, so a session whose briefs the user had rewritten
+ * line by line still fingerprinted as the script and still got the canned
+ * Cancun transcript read over it. Every write that edits a brief or a
+ * personality now clears the flag instead.
  */
-export function isSeedScenario(session: Pick<DemoSession, "tripName">): boolean {
-  return session.tripName.trim() === TRIP_NAME;
+export function isSeedScenario(session: Pick<DemoSession, "scripted">): boolean {
+  return session.scripted;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -223,15 +226,66 @@ const PRIYA_BRIEF: Brief = {
 };
 
 /**
- * Maya is the person in front of the screen.
+ * The person in front of the screen starts with nothing said.
  *
- * Her transcript is empty on purpose: the briefing screen fills it live while a
- * judge watches, which is the 0:15 beat of the demo. Everything else about her
- * is the payoff — a $600 ceiling marked private, a dealbreaker about early
- * flights, and four wants of which exactly one (the hotel) is the thing her
- * agent trades away to protect the number it will never say.
+ * Every field is blank, and that is the point of the screen: at 0:15 of the
+ * script a judge watches a human tell an agent something and watches the panel
+ * fill in. A pre-populated seat would have the panel already naming a
+ * destination, a date range, a $600 ceiling and four wants that nobody in the
+ * room had typed, which reads as a mock rather than a product.
  */
-const MAYA_BRIEF: Brief = {
+const EMPTY_YOU_BRIEF: Brief = {
+  participantId: "maya",
+  destinationWant: "",
+  dates: "",
+  nights: null,
+  budgetCeiling: null,
+  // True from the start: a number is private until its owner says otherwise,
+  // never the other way round.
+  budgetIsPrivate: true,
+  dealbreakers: [],
+  wants: [],
+  notes: [],
+  rawTranscript: [],
+};
+
+/**
+ * The briefing chat this brief came out of, as four lines.
+ *
+ * Written rather than generated so the one-click sample lands the kept-secret
+ * beat exactly: the human names the number and asks for it to be sat on, and
+ * the agent answers with what the room will hear instead.
+ */
+export const SAMPLE_TRANSCRIPT: BriefMessage[] = [
+  line(
+    "agent",
+    "Before I go argue with the others: where do you want to go, when, and what’s the real number?",
+  ),
+  line(
+    "human",
+    "Somewhere warm, March 14–19. I can do $600 max. Please don’t tell them that.",
+  ),
+  {
+    ...line(
+      "agent",
+      "Locked. They’ll hear “Cancun is a stretch,” never “$600.” I’ll trade away the nicer hotel before I let the number slip.",
+    ),
+    keptPrivate: "$600 budget",
+  },
+  line("human", "Also, no flights before 8am."),
+];
+
+/**
+ * The briefing a demo can apply in one tap instead of typing it.
+ *
+ * This is the content the seeded seat used to ship with, and it is still what
+ * the rest of the demo is tuned against: a $600 ceiling marked private, a
+ * dealbreaker about early flights, and four wants of which exactly one (the
+ * hotel) is the thing this agent trades away to protect the number it will
+ * never say. It is a shortcut now, not a starting state, so the panel only
+ * ever shows it after somebody chose it.
+ */
+export const SAMPLE_BRIEF: Brief = {
   participantId: "maya",
   destinationWant: "Somewhere warm with a beach",
   dates: TRIP_DATES,
@@ -246,13 +300,12 @@ const MAYA_BRIEF: Brief = {
     "A hotel with a pool",
   ],
   notes: ["private: money is tight until the job starts in June"],
-  // Empty by design: the briefing screen writes into this live.
-  rawTranscript: [],
+  rawTranscript: SAMPLE_TRANSCRIPT,
 };
 
 /** The four briefs, keyed the way every other module addresses them. */
 export const SEED_BRIEFS: Record<ParticipantId, Brief> = {
-  maya: MAYA_BRIEF,
+  maya: EMPTY_YOU_BRIEF,
   jordan: JORDAN_BRIEF,
   sam: SAM_BRIEF,
   priya: PRIYA_BRIEF,
@@ -311,5 +364,8 @@ export function createSeedSession(id?: string): DemoSession {
     reports: null,
     usage: { ...EMPTY_USAGE },
     startedAt: Date.now(),
+    // Nothing has been edited yet, so the offline provider may still replay the
+    // hand-written grad-trip script. The first brief or slider clears this.
+    scripted: true,
   };
 }

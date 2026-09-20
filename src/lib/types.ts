@@ -132,6 +132,16 @@ export function describePersonality(p: Personality): string {
 export const briefMessageSchema = z.object({
   role: z.enum(["agent", "human"]),
   text: z.string(),
+  /**
+   * The badge under an agent line: "Kept private: $600 budget".
+   *
+   * Stored on the message rather than recomputed on render because the label
+   * belongs to the turn that earned it. A reload that re-derived it from the
+   * finished brief would stamp it on every agent line at once, and the moment
+   * the demo is selling is the one line where the agent says it will sit on
+   * the number.
+   */
+  keptPrivate: z.string().optional(),
 });
 
 /** A single turn of the briefing conversation. */
@@ -741,6 +751,15 @@ export const demoSessionSchema = z.object({
   usage: usageSchema,
   /** `Date.now()` at creation, used for the "agreed in" figure. */
   startedAt: z.number(),
+  /**
+   * True only while this session is still the untouched seeded script.
+   *
+   * The offline provider may replay its canned grad-trip transcript only then.
+   * The first edit to any brief or personality clears it, because the moment a
+   * human changes what their agent knows, a hand-written transcript stops being
+   * a recording of this room and becomes a lie about it.
+   */
+  scripted: z.boolean(),
 });
 
 /** The whole demo state. */

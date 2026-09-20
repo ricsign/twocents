@@ -24,6 +24,7 @@ import {
   resetSession,
   updateSession,
 } from "@/lib/session";
+import { applyBrief, applyPersonality } from "@/lib/session-writes";
 import {
   DEFAULT_VIEWER,
   sessionViewFor,
@@ -96,7 +97,13 @@ function viewResponse(session: DemoSession, viewer: ParticipantId): Response {
   return Response.json(view);
 }
 
-/** Replaces one participant's state without touching the other three. */
+/**
+ * Replaces one participant's state without touching the other three.
+ *
+ * Used only by `approve`, which is the one write that leaves the run standing.
+ * A brief or a personality edit goes through `lib/session-writes.ts` instead,
+ * because it has to take the run down with it.
+ */
 function patchParticipant(
   session: DemoSession,
   participantId: ParticipantId,
@@ -204,16 +211,14 @@ export async function POST(request: Request): Promise<Response> {
           } as z.core.$ZodIssue,
         ]);
       }
-      const next = patchParticipant(session, body.participantId, { brief: body.brief });
+      const next = applyBrief(session, body.participantId, body.brief);
       return next
         ? viewResponse(next, viewer)
         : Response.json({ error: "unknown participant" }, { status: 404 });
     }
 
     case "updatePersonality": {
-      const next = patchParticipant(session, body.participantId, {
-        personality: body.personality,
-      });
+      const next = applyPersonality(session, body.participantId, body.personality);
       return next
         ? viewResponse(next, viewer)
         : Response.json({ error: "unknown participant" }, { status: 404 });

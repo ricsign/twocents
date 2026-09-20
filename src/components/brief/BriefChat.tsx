@@ -6,7 +6,16 @@ import { agentName } from "@/lib/characters";
 import { Avatar } from "@/components/ui/Sprite";
 import { PixelButton } from "@/components/ui/PixelButton";
 import { LockIcon } from "@/components/ui/PixelIcons";
-import type { ChatMessage } from "./seed";
+import type { BriefMessage } from "@/lib/types";
+
+/**
+ * A transcript line plus the one thing React needs that the domain model does
+ * not carry: a stable key. Lives here because this is the component that
+ * renders one, and `BriefScreen` only holds the list on its behalf.
+ */
+export interface ChatMessage extends BriefMessage {
+  id: string;
+}
 
 /**
  * The private briefing card: who you are talking to, what you have said so

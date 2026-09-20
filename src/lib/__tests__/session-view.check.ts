@@ -33,7 +33,7 @@
 
 import assert from "node:assert/strict";
 import { PARTICIPANT_IDS, type ParticipantId } from "@/lib/characters";
-import { createSeedSession } from "@/lib/seed";
+import { SAMPLE_BRIEF, createSeedSession } from "@/lib/seed";
 import { eventForViewer, sessionViewFor, sessionViewSchema } from "@/lib/session-view";
 import { negotiationEventSchema } from "@/lib/types";
 import type {
@@ -129,6 +129,10 @@ function turnFor(participantId: ParticipantId, index: number): NegotiationTurn {
  */
 function finishedSession(): DemoSession {
   const session = createSeedSession("check-session");
+  // The seat in front of the screen starts blank, so it has no ceiling to hunt
+  // for until somebody briefs it. `SAMPLE_BRIEF` is the brief the demo applies
+  // in one tap, and it carries the $600 these checks are written around.
+  session.participants.maya.brief = { ...SAMPLE_BRIEF };
   const reports = {} as Record<ParticipantId, AgentReport>;
 
   for (const id of PARTICIPANT_IDS) {
@@ -307,6 +311,7 @@ check("sam's view contains maya's public wants but not her number", () => {
 
 check("an unfinished session narrows without throwing", () => {
   const fresh = createSeedSession("fresh");
+  // Priya, not the demo user: hers is the seat the seed still fills.
   const view = sessionViewFor(fresh, "priya");
   assert.equal(view.plan, null);
   assert.equal(view.fairness, null);

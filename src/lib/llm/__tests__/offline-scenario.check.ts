@@ -34,7 +34,12 @@ import { PARTICIPANT_IDS, type ParticipantId } from "@/lib/characters";
 import { OfflineProvider } from "@/lib/llm/offline";
 import { runNegotiation } from "@/lib/negotiation/engine";
 import { checkForLeaks } from "@/lib/negotiation/redaction";
-import { SEED_PERSONALITIES, TRIP_NAME, createSeedSession } from "@/lib/seed";
+import {
+  SAMPLE_BRIEF,
+  SEED_PERSONALITIES,
+  TRIP_NAME,
+  createSeedSession,
+} from "@/lib/seed";
 import {
   EMPTY_USAGE,
   secretsFromBrief,
@@ -189,6 +194,9 @@ function judgesSession(topic: string, when: string, seats: readonly Seat[]): Dem
     fairness: null,
     reports: null,
     usage: { ...EMPTY_USAGE },
+    // Four briefs the judge typed, so the provider must generate rather than
+    // replay. Exactly what `/api/judges` stores.
+    scripted: false,
   };
 }
 
@@ -282,18 +290,46 @@ async function assertGeneratedRunIsSound(
 /* Run                                                                         */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * The seeded session with the sample brief applied to the seat in front of the
+ * screen.
+ *
+ * That seat starts blank now, because the briefing screen is what fills it and
+ * a panel pre-loaded with four wants nobody typed is a mock. The captured run
+ * below was made against `SAMPLE_BRIEF`, which is the same content under a new
+ * name, so the fixture applies it rather than the assertions being relaxed:
+ * the fairness rows in `SEEDED_TRANSCRIPT` are scored from real briefs, and a
+ * blank seat would score 0 of 0.
+ */
+function scriptedSession(id: string): DemoSession {
+  const session = createSeedSession(id);
+  session.participants.maya.brief = { ...SAMPLE_BRIEF };
+  return session;
+}
+
 async function main(): Promise<void> {
   await check("the seeded grad trip is byte-identical to the captured run", async () => {
-    const session = createSeedSession("check-seed");
+    const session = scriptedSession("check-seed");
     assert.equal(session.tripName, TRIP_NAME);
+    assert.equal(session.scripted, true);
     const actual = flatten(await runOffline(session));
     assert.deepEqual(actual, [...SEEDED_TRANSCRIPT]);
   });
 
   await check("rerunning the seeded trip produces the same transcript again", async () => {
-    const first = flatten(await runOffline(createSeedSession("check-seed-a")));
-    const second = flatten(await runOffline(createSeedSession("check-seed-b")));
+    const first = flatten(await runOffline(scriptedSession("check-seed-a")));
+    const second = flatten(await runOffline(scriptedSession("check-seed-b")));
     assert.deepEqual(first, second);
+  });
+
+  // The flag, not the trip name, is what unlocks the script. A seeded session
+  // whose briefs were edited keeps its name and must stop replaying.
+  await check("an edited session stops replaying the script", async () => {
+    const edited = scriptedSession("check-edited");
+    edited.scripted = false;
+    const actual = flatten(await runOffline(edited));
+    assert.equal(edited.tripName, TRIP_NAME);
+    assert.notDeepEqual(actual, [...SEEDED_TRANSCRIPT]);
   });
 
   await check("a judges' dinner argues about dinner and keeps every secret", async () => {
