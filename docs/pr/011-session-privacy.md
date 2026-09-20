@@ -46,7 +46,7 @@ narrowing function saying so, so nobody later "fixes" that.
 ## Verification
 
 `src/lib/__tests__/session-view.check.ts` — **21/21 passing**, run for two
-different viewers so the function can't be hard-coded to Maya. Assertions run
+different viewers so the function can't be hard-coded to Richard. Assertions run
 against the serialized wire form rather than named fields, so a leak through a
 field nobody anticipated still fails the test.
 

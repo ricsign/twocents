@@ -877,8 +877,8 @@ export const participantStateSchema = z.object({
   /**
    * What this person is called, when they are not the cast member in the seat.
    *
-   * Absent on the seeded grad trip, which is why that run still reads Maya /
-   * Jordan / Sam / Priya everywhere. The judges' round sets it to the name a
+   * Absent on the seeded grad trip, which is why that run still reads Richard /
+   * Angela / Will / Tsai everywhere. The judges' round sets it to the name a
    * judge typed, and `displayNameFor` is the only thing that reads it.
    */
   displayName: z.string().optional(),

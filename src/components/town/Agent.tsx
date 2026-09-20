@@ -5,7 +5,7 @@
  * the thinking dots that pop above its head while its line is being written.
  *
  * Positions are literal pixel offsets inside the room's fixed 888x768 layer.
- * Sam stands behind the table (z-index 1) so the table hides his feet; the
+ * Will stands behind the table (z-index 1) so the table hides his feet; the
  * other three are in front of it.
  */
 

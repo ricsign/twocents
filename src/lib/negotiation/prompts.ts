@@ -47,7 +47,7 @@ import {
  * What to write where a mandate names no destination.
  *
  * A brief is empty until its human says something, and the seat in front of
- * the screen starts that way, so the roster line rendered as "- Will: wants ;
+ * the screen starts that way, so the roster line rendered as "- Richard: wants ;
  * on money they are ..." — a blank the model is free to read as a person with
  * no opinion, or to fill in for itself. A stated position is both truer and
  * harder to misread: the agent really is arguing for whatever the room can all
@@ -122,7 +122,7 @@ function formatFeasibility(check: OfferFeasibility | undefined): string {
   return `${check.bookable ? "CHECKED" : "NOT BOOKABLE"}: ${check.note}${real}`;
 }
 
-/** `r2 Jordan trades: "Fine. But we keep the catamaran day."` */
+/** `r2 Angela trades: "Fine. But we keep the catamaran day."` */
 export function formatTurn(
   turn: NegotiationTurn,
   maxChars = 160,
@@ -225,7 +225,7 @@ export function buildNegotiationUserPrompt(options: {
    *
    * Not optional in practice: `formatOffer` and `formatTurn` both fall back to
    * the cast when it is missing, so leaving it out fed a judges' round a
-   * transcript attributed to Will, Angela, Richard and Tsai. The agents then
+   * transcript attributed to Richard, Angela, Will and Tsai. The agents then
    *答 answered people who were not at the table.
    */
   names?: DisplayNames;

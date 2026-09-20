@@ -33,7 +33,7 @@ import {
 /* Fixtures                                                                    */
 /* -------------------------------------------------------------------------- */
 
-/** Maya's $600 ceiling, shaped exactly as `secretsFromBrief` builds it. */
+/** Richard's $600 ceiling, shaped exactly as `secretsFromBrief` builds it. */
 const BUDGET_600: Secret = {
   id: "maya-budget",
   kind: "budget",

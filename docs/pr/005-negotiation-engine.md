@@ -7,8 +7,8 @@ runs against, and the streaming endpoint the Town screen consumes.
 
 ## What's in it
 
-- **`src/lib/seed.ts`** — the demo's starting state. Sam, Jordan and Priya
-  arrive pre-briefed; Maya is left empty for the user to brief live on stage.
+- **`src/lib/seed.ts`** — the demo's starting state. Will, Angela and Tsai
+  arrive pre-briefed; Richard is left empty for the user to brief live on stage.
   Each brief carries four stated wants; `scoreFairness` adds the budget
   ceiling as a fifth implicit one, which is what makes the meter read "n of 5"
   exactly as the mockup does.
@@ -52,12 +52,12 @@ If it leaks again, the redacted line ships. Leaks caught are counted per run.
 ## Verification
 
 End-to-end on the offline provider: 2 rounds, 8 turns, converges on Puerto Rico
-at $540, `nobodyOverruled` true, fairness rows landing on Maya 4/5, Jordan 4/5,
-Sam 3/5 (gave up the resort), Priya 5/5 without tuning.
+at $540, `nobodyOverruled` true, fairness rows landing on Richard 4/5, Angela 4/5,
+Will 3/5 (gave up the resort), Tsai 5/5 without tuning.
 
 Adversarial runs:
 
-- a provider that leaks `$600` on every Maya turn → 3 leaks caught, **0 shipped**
+- a provider that leaks `$600` on every Richard turn → 3 leaks caught, **0 shipped**
 - a provider that throws on every call → degrades to offline mid-stream and
   still reaches a plan
 - a pre-aborted signal → zero events, zero model calls

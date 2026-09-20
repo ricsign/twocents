@@ -111,8 +111,8 @@ offer them a turn.
 
 `docs/DEMO.md` follows: the warm-up now goes through the sample brief (the
 guard bounces an empty seat), the flip beat no longer presses RESET, and the
-run sheet says the cast's real names. Those names have said Maya, Sam and Priya
-since PR #18 renamed them to Will, Richard and Tsai, which is a doc that
+run sheet says the cast's real names. Those names have said Richard, Will and Tsai
+since PR #18 renamed them to Richard, Will and Tsai, which is a doc that
 predates this branch and would have made the new beats read as two different
 demos.
 
@@ -134,6 +134,6 @@ arrived at from the room instead of from a constant.
 ## Known, not fixed
 
 The title screen reads the cast from `lib/characters.ts` rather than from the
-session, so a judges' round that renames all four leaves `/` still saying Will.
+session, so a judges' round that renames all four leaves `/` still saying Richard.
 Making it dynamic would cost the one static page in the app its static render,
 for a screen nobody returns to mid-round.
