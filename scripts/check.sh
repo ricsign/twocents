@@ -20,6 +20,7 @@ failed=0
 for suite in \
   lib/__tests__/session-view.check.js \
   lib/room/__tests__/room.check.js \
+  lib/llm/__tests__/sweep-up.check.js \
   lib/llm/__tests__/offline-scenario.check.js \
   lib/negotiation/__tests__/fairness.check.js \
   lib/negotiation/__tests__/redaction.check.js

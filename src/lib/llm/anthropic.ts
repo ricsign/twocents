@@ -136,6 +136,34 @@ function messagesWith(req: CompletionRequest): Anthropic.Messages.MessageParam[]
   );
 }
 
+/**
+ * The part of a searching answer that is safe to hand back to the model.
+ *
+ * A response that used the web tool carries three kinds of block: the prose it
+ * wrote, the `server_tool_use` records of the searches, and the
+ * `web_search_tool_result` blocks that answer them. The API insists those last
+ * two come in pairs — and a response that stopped early, on the token ceiling
+ * or mid-search, has a search with no result attached to it. Replaying that
+ * verbatim is a 400:
+ *
+ *     `web_search` tool use with id ... was found without a corresponding
+ *     `web_search_tool_result` block
+ *
+ * Which is not a small failure. It happens on the *sweep-up*, so the searching
+ * call already succeeded and its findings already exist; the second call then
+ * dies, the resilient provider answers from the script, and an itinerary built
+ * from five real searches is replaced by canned days nobody searched for.
+ *
+ * Only the prose is replayed, because only the prose is what the sweep-up
+ * needs: "here is what you found, now say it as data". The search records are
+ * bookkeeping for a turn that is already over.
+ */
+export function replayableContent(
+  content: readonly Anthropic.Messages.ContentBlock[],
+): Anthropic.Messages.TextBlock[] {
+  return content.filter((block): block is Anthropic.Messages.TextBlock => block.type === "text");
+}
+
 function emitBlockOf(
   message: Anthropic.Messages.Message,
 ): Anthropic.Messages.ToolUseBlock | undefined {
@@ -289,11 +317,12 @@ export class AnthropicProvider implements LLMProvider {
     // not the one above. It is what carries the stop reason worth reporting.
     let answering = message;
 
-    if (!block && searching) {
-      // It searched and then answered in prose. The findings are in the content
-      // we just got, so they are handed back verbatim and the answer is forced
-      // out of them — one extra call, only on the turn that needed it, and no
-      // second search.
+    const found = replayableContent(message.content);
+
+    if (!block && searching && found.length > 0) {
+      // It searched and then answered in prose. The findings are in the text it
+      // wrote, so those are handed back and the answer is forced out of them —
+      // one extra call, only on the turn that needed it, and no second search.
       const followUp = await this.guarded(req, (signal) =>
         this.client.messages.create(
           {
@@ -302,7 +331,7 @@ export class AnthropicProvider implements LLMProvider {
             system: req.system,
             messages: [
               ...messagesWith(req),
-              { role: "assistant", content: message.content },
+              { role: "assistant", content: found },
               { role: "user", content: "Now emit that as structured data. Do not search again." },
             ],
             tools: [tool],

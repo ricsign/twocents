@@ -22,6 +22,19 @@
  * Strings are deliberately not `.trim()`ed here: zod's trim is a transform, and
  * a transform in a schema bound for `z.toJSONSchema` risks degrading the whole
  * thing to a bare object. Trimming happens in `seats.ts`, after parsing.
+ *
+ * **The string limits are guidance, not gates, and the two layers differ on
+ * purpose.** What is emitted here becomes `maxLength` in the tool schema, which
+ * is how the model is told how long a field should be. What `seats.ts` does
+ * with `tidy()` is the limit that actually holds, because it truncates. Making
+ * the parse strict as well meant a model that wrote one sentence a few
+ * characters too long had its entire reading rejected — four people correctly
+ * identified, thrown away over a note, and the host told we could not read
+ * their screenshot. So the caps here are generous and the clamp is downstream.
+ *
+ * The bounds that are *not* generous are the array lengths. Those are the ones
+ * that protect the token ceiling, and an unbounded array is how a call comes
+ * back truncated and therefore as nothing at all.
  */
 
 import { z } from "zod";
@@ -74,9 +87,9 @@ export const ingestRequestSchema = z.object({
 
 const extractedPersonSchema = z.object({
   /** Exactly as the chat shows it: "@jules", "Mom", "Jordan K.". */
-  handle: z.string().max(40),
+  handle: z.string().max(120),
   /** A readable form of the same person; equal to the handle when there is nothing better. */
-  displayName: z.string().max(40),
+  displayName: z.string().max(120),
   /**
    * How many messages are attributable to this person across every image.
    *
@@ -89,15 +102,15 @@ const extractedPersonSchema = z.object({
   /** Whoever is driving this — started the thread, proposed it. At most one. */
   isHost: z.boolean(),
   /** One line, their words where possible. Becomes `Brief.destinationWant`. */
-  want: z.string().max(240),
+  want: z.string().max(600),
   /** Scored separately by the fairness meter, so these are claims, not a sentence. */
-  wants: z.array(z.string().max(120)).max(4),
+  wants: z.array(z.string().max(300)).max(4),
   /** Only a hard no they actually stated. Never inferred from tone. */
-  dealbreakers: z.array(z.string().max(120)).max(3),
+  dealbreakers: z.array(z.string().max(300)).max(3),
   /** "" when this person named none. Free text: "the week of the 14th". */
-  dates: z.string().max(60),
+  dates: z.string().max(200),
   /** A sentence or two on what they are like. Becomes `Personality.bio`. */
-  bio: z.string().max(200),
+  bio: z.string().max(600),
   /** A guess at the four sliders, on the same poles as `personalitySchema`. */
   personality: z.object({
     stubborn: z.number().int().min(0).max(100),
@@ -118,9 +131,9 @@ const extractedPersonSchema = z.object({
    * and deliberately not carried into the brief: it is a verbatim quote of
    * somebody who is not in the room yet.
    */
-  evidence: z.string().max(160),
+  evidence: z.string().max(500),
   /** The handle this person is probably also posting under, or null. */
-  duplicateOf: z.string().max(40).nullable(),
+  duplicateOf: z.string().max(120).nullable(),
 });
 
 /** One person, as read off the chat. */
@@ -132,15 +145,15 @@ export const chatExtractionSchema = z.object({
   /** False when it is a real chat but nobody is planning anything. */
   isTripPlanning: z.boolean(),
   /** Becomes `DemoSession.tripName`. "Grad trip", "Dinner Friday". */
-  topic: z.string().max(60),
+  topic: z.string().max(200),
   /** Places anyone named. Seeds an open seat's want and the opening offers. */
-  destinationCandidates: z.array(z.string().max(60)).max(4),
+  destinationCandidates: z.array(z.string().max(200)).max(4),
   /** The dates the group converged on, free text. "" when unsettled. */
   dates: z.string().max(60),
   /** Everyone who spoke. Up to eight; the server ranks and keeps four. */
   people: z.array(extractedPersonSchema).max(8),
   /** Anything a host should know: "two handles may be the same person". */
-  notes: z.array(z.string().max(160)).max(3),
+  notes: z.array(z.string().max(500)).max(3),
 });
 
 /** A whole group chat, as read. */
