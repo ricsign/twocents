@@ -590,10 +590,22 @@ function shortWant(want: string): string | null {
 }
 
 /**
+ * What the meter prints when a plan broke somebody's real ceiling.
+ *
  * Never contains a figure: the bar is shown on the shared plan screen, so
  * "gave up staying under budget" is sayable and "gave up their $600 ceiling"
  * would undo the entire product in one label.
+ *
+ * Exported because it is the one signal a finished `FairnessReport` carries
+ * that a row's top concession was money — the ranking in `scoreFairness` puts
+ * a broken ceiling above every other loss, so a row wearing this clause is a
+ * person the plan priced out. `PlanHeadline` reads it to decide whether it may
+ * say the plan is inside everyone's budget, and both sides reading the one
+ * string is what stops the headline disagreeing with the bars beneath it.
  */
+export const GAVE_UP_BUDGET = "gave up staying under budget";
+
+
 /** "no flights before 8am", "nothing too loud": a want phrased as a refusal. */
 const NEGATED = /^(?:no|not|nothing|never|without|avoid)\b/i;
 
@@ -612,7 +624,7 @@ const NEGATED = /^(?:no|not|nothing|never|without|avoid)\b/i;
  * and are named as the limit they were.
  */
 function gaveUpClause(want: ScoredWant): string {
-  if (want.isBudget) return "gave up staying under budget";
+  if (want.isBudget) return GAVE_UP_BUDGET;
 
   if (want.isLimit || NEGATED.test(want.text.trim())) {
     const head = headToken(want.text);
