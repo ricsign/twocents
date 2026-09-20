@@ -30,6 +30,7 @@ import {
   sessionViewFor,
   type SessionView,
 } from "@/lib/session-view";
+import { blankBrief } from "@/lib/seed";
 import {
   briefSchema,
   participantIdSchema,
@@ -76,6 +77,21 @@ const requestSchema = z.discriminatedUnion("action", [
   }),
   z.object({
     action: z.literal("approve"),
+    sessionId: z.string().optional(),
+    viewer: participantIdSchema.optional(),
+    participantId: participantIdSchema,
+  }),
+  /**
+   * Forget everything my agent knows and start the conversation again.
+   *
+   * Narrower than `reset` on purpose: this clears one person's brief and
+   * transcript and leaves the room — the other three briefs, the plan, the
+   * approvals — where it was. Wanting to re-brief your own agent is an ordinary
+   * thing to want, and making the only route to it the button that wipes the
+   * whole demo is why people end up staring at somebody else's conversation.
+   */
+  z.object({
+    action: z.literal("clearBrief"),
     sessionId: z.string().optional(),
     viewer: participantIdSchema.optional(),
     participantId: participantIdSchema,
@@ -226,6 +242,17 @@ export async function POST(request: Request): Promise<Response> {
 
     case "approve": {
       const next = patchParticipant(session, body.participantId, { approved: true });
+      return next
+        ? viewResponse(next, viewer)
+        : Response.json({ error: "unknown participant" }, { status: 404 });
+    }
+
+    case "clearBrief": {
+      // The personality survives: how your agent argues is a separate decision
+      // from what it is arguing for, and it was made on a different screen.
+      const next = patchParticipant(session, body.participantId, {
+        brief: blankBrief(body.participantId),
+      });
       return next
         ? viewResponse(next, viewer)
         : Response.json({ error: "unknown participant" }, { status: 404 });

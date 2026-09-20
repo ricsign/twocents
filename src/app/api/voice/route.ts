@@ -45,12 +45,12 @@ export interface VoicePreviewResponse {
 
 function systemFor(contested: string | undefined): string {
   return [
-    "You are one friend's AI agent, about to negotiate a group plan with three other agents.",
+    "You are one friend's AI agent, working out a group plan with three other agents.",
     "Write ONE line you would say out loud in that room, in the voice described. One or two sentences, maximum 28 words.",
     contested
       ? `The option on the table right now is ${contested}. Respond to that, in your own person's interest.`
       : "Something expensive is on the table. Respond to that, in your own person's interest.",
-    "Argue your person's side without ever naming their budget, a spending ceiling or any private reason. Talk about the plan, not the money they have.",
+    "Put your person's side without ever naming their budget, a spending ceiling or any private reason. Talk about the plan, not the money they have.",
     "Plain speech. No quotation marks, no stage directions, no preamble, no em dashes. Return the line and nothing else.",
   ].join("\n");
 }

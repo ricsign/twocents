@@ -26,14 +26,45 @@
  */
 
 import { runNegotiation } from "@/lib/negotiation/engine";
+import { PARTICIPANT_IDS, YOU } from "@/lib/characters";
 import { DEFAULT_SESSION_ID, getOrCreateDefault, getSession, updateSession } from "@/lib/session";
 import { DEFAULT_VIEWER, eventForViewer } from "@/lib/session-view";
 import {
   participantIdSchema,
   type NegotiationEvent,
   type NegotiationTurn,
+  type DemoSession,
   type ParticipantId,
+  type ParticipantState,
 } from "@/lib/types";
+
+/**
+ * The other three approve when the plan lands. You still have to tap.
+ *
+ * There is one person at this laptop. The other three are played by the app, so
+ * their approval is the app's to give — and it already gives it: the plan screen
+ * draws their avatars ticked and tells you "that's all four" the moment you
+ * approve. Until now the session disagreed, which made the itinerary
+ * unreachable: `/api/itinerary` checks the session, found three unapproved
+ * participants, and answered 403 behind a screen that had just said everyone
+ * was in. One of the two had to be wrong, and the screen is the one people
+ * read, so the session is what changed.
+ *
+ * Your own approval is untouched. It is the only real one in the room, it is
+ * what the APPROVE button writes, and the gate still holds for it. A build with
+ * four humans on four devices would collect the other three the same way.
+ */
+function withSimulatedApprovals(
+  session: DemoSession,
+): Record<ParticipantId, ParticipantState> {
+  const participants = { ...session.participants };
+  for (const id of PARTICIPANT_IDS) {
+    const existing = participants[id];
+    if (!existing || id === YOU) continue;
+    participants[id] = { ...existing, approved: true };
+  }
+  return participants;
+}
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -212,10 +243,20 @@ function streamNegotiation(params: RunParams, signal: AbortSignal): Response {
               kind: event.kind,
               text: event.text,
               ...(event.privateReasonKept ? { privateReasonKept: event.privateReasonKept } : {}),
+              // Carried so a transcript read back from the session still shows
+              // the search behind a line, and the links it opened.
+              ...(event.sourced ? { sourced: event.sourced } : {}),
             });
           }
           if (event.type === "agreed") {
-            updateSession(session.id, { turns: [...turns], plan: event.plan });
+            updateSession(session.id, {
+              turns: [...turns],
+              plan: event.plan,
+              // Read fresh, not from the snapshot this request opened with: if
+              // you approved while the room was still talking, that tap must
+              // not be written back to false underneath you.
+              participants: withSimulatedApprovals(getSession(session.id) ?? session),
+            });
           }
           if (event.type === "done") {
             updateSession(session.id, {

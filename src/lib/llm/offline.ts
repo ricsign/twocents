@@ -21,6 +21,7 @@
 
 import type { z } from "zod";
 import type { ParticipantId } from "@/lib/characters";
+import { cannedItinerary, type CannedTrip } from "@/lib/itinerary/canned";
 import { EMPTY_USAGE, type Usage } from "@/lib/types";
 import type {
   CompletionRequest,
@@ -104,19 +105,27 @@ function mentionsMoney(text: string): boolean {
   return MONEY_PATTERN.test(text);
 }
 
-/** Pulls a per-person ceiling out of free text, for `brief-extract`. */
+/**
+ * Pulls a per-person ceiling out of free text, for `brief-extract`.
+ *
+ * The *last* figure wins, not the first: the text handed in is the whole
+ * conversation, and a person who says "800, actually make it 650" has named
+ * their ceiling second. Reading the first match would hold them to a number
+ * they already corrected.
+ */
 function budgetIn(text: string): number | null {
-  const dollar = /\$\s*(\d[\d,]*)/.exec(text);
-  if (dollar) {
-    const n = Number(dollar[1].replace(/,/g, ""));
-    if (Number.isFinite(n)) return n;
+  let found: number | null = null;
+  for (const match of text.matchAll(/\$\s*(\d[\d,]*)/g)) {
+    const n = Number((match[1] ?? "").replace(/,/g, ""));
+    if (Number.isFinite(n)) found = n;
   }
-  const worded = /\b(\d[\d,]{2,})\s*(dollars|bucks|usd)?\b/i.exec(text);
-  if (worded) {
-    const n = Number(worded[1].replace(/,/g, ""));
-    if (Number.isFinite(n)) return n;
+  if (found !== null) return found;
+
+  for (const match of text.matchAll(/\b(\d[\d,]{2,})\s*(?:dollars|bucks|usd)?\b/gi)) {
+    const n = Number((match[1] ?? "").replace(/,/g, ""));
+    if (Number.isFinite(n)) found = n;
   }
-  return null;
+  return found;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -129,7 +138,7 @@ function budgetIn(text: string): number | null {
  * it confirms the secret is held and proves it by never repeating the figure.
  */
 const MONEY_REPLIES = [
-  "Locked. They’ll hear “Cancun is a stretch,” never the number. I’ll trade away the nicer hotel before I let it slip. Anything else that stays between us?",
+  "Locked. They’ll hear “that’s over what works for us,” never the number. I’ll trade away the nicer hotel before I let it slip. Anything else that stays between us?",
   "Got it, and it stays with me. Out there it becomes “that’s over what works for us” — no figure, ever. What else is a hard no?",
 ] as const;
 
@@ -142,8 +151,8 @@ const BRIEF_LADDER = [
   "Noted — “{q}”. When? Give me the window, even a rough one.",
   "“{q}” — in. Now the real number: the most you can spend, all in. I won’t repeat it to anyone, including them.",
   "Got it. Anything that’s a hard no? Early flights, long layovers, a place you won’t go back to.",
-  "That’s a dealbreaker, not a preference, and I’ll argue it like one. Anything you’d never say in the group chat?",
-  "Locked. I have enough to argue your side. Set how I should sound and I’ll go in.",
+  "That’s a dealbreaker, not a preference, and I’ll hold it like one. Anything you’d never say in the group chat?",
+  "Locked. I have enough to speak for you. Set how I should sound and I’ll go in.",
 ] as const;
 
 function briefReply(req: CompletionRequest): string {
@@ -346,6 +355,19 @@ function offerCheck(req: CompletionRequest): Record<string, unknown> {
   };
 }
 
+/** The trip an `itinerary` call is about, read out of its context hints. */
+function tripFrom(req: CompletionRequest): CannedTrip {
+  const ctx = req.context;
+  return {
+    destination: ctxString(ctx, "destination") || "somewhere warm",
+    region: ctxString(ctx, "region") || "the coast",
+    nights: Math.max(1, Math.trunc(ctxNumber(ctx, "nights") ?? 5)),
+    perPerson: ctxNumber(ctx, "perPerson") ?? 600,
+    flightNote: ctxString(ctx, "flightNote") || "Flights both ways",
+    lodgingNote: ctxString(ctx, "lodgingNote") || "Somewhere clean, near the middle",
+  };
+}
+
 interface Beat {
   speaker: ParticipantId;
   kind: "proposes" | "pushes back" | "trades" | "counters" | "agrees";
@@ -524,7 +546,7 @@ const REPORTS: Record<ParticipantId, Record<string, unknown>> = {
     participantId: "priya",
     gotYou: "No passport, no early flight, and a day out on Culebra. Everything you asked for.",
     tradedAway: "Nothing. You came in the cheapest to satisfy and it cost you no ground.",
-    why: "Puerto Rico cleared your no-passport rule on its own, so I spent my turns backing Will’s number instead of arguing for you.",
+    why: "Puerto Rico cleared your no-passport rule on its own, so I spent my turns backing Will’s number instead of pushing for you.",
     secretsKept: [],
   },
 };
@@ -537,33 +559,171 @@ function reportFor(req: CompletionRequest): Record<string, unknown> {
 /* 5. brief-extract                                                            */
 /* -------------------------------------------------------------------------- */
 
+/** "don't tell them", "keep that quiet" — the ask that makes a line private. */
+const HUSH_PATTERN =
+  /don'?t tell|do not tell|between us|keep (?:it|that|this) (?:quiet|private|secret)|not a word|never say|don'?t mention|off the record|just between|secret/i;
+
+/** A hard no, however it was phrased. */
+const REFUSAL_PATTERN = /^(?:no|not|never|nothing)\b|\bwon'?t\b|\bcan'?t\b|\bhard no\b/i;
+
+/** "Mar 14-19", "March 14 to 19", "in May", "the first week of June". */
+const DATE_PATTERN =
+  /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?(?:\s*\d{1,2})?(?:\s*(?:[–—-]|to|through|until)\s*(?:[a-z]+\.?\s*)?\d{1,2})?\b/i;
+
+/** "5 nights", "a week". */
+const NIGHTS_PATTERN = /\b(\d{1,2})\s*nights?\b/i;
+
+/** Sentences, because "keep that quiet" only covers the sentence it is in. */
+function sentencesOf(text: string): string[] {
+  return text
+    .split(/[.!?]+/)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => sentence.length > 0);
+}
+
+/** Splits a sentence into the separate things it actually says. */
+function clausesOf(text: string): string[] {
+  return text
+    .split(/[,;]+|\s+\b(?:and|but|also|plus)\b\s+/i)
+    .map((clause) => clause.trim())
+    .filter((clause) => clause.length > 2);
+}
+
+/** Sentence case, so a clause typed mid-sentence reads as a line on the panel. */
+function asLine(clause: string): string {
+  const trimmed = clause.replace(/^(?:i|we)\s+(?:want|need|would like|'?d like)\s+/i, "").trim();
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+}
+
 /**
- * Rebuilds a `Brief`-shaped object from whatever the caller put in `context`,
- * falling back to Will's briefing from `design/01-brief.clean.html`. The
- * transcript is scanned for a dollar figure so an offline run of a *live*
- * briefing still captures the number the human actually typed.
+ * What the human said, read as a brief.
+ *
+ * This is deliberate, dumb, explainable parsing rather than anything clever:
+ * split what they typed into clauses, drop the ones that are the money or the
+ * request to keep it quiet, and sort what is left into dealbreakers (a clause
+ * phrased as a refusal), private notes (a clause they asked to keep quiet) and
+ * wants (everything else). It is the offline path — there is no model to ask —
+ * and being wrong in a way a person can see and correct on the next line beats
+ * being confidently seeded with somebody else's holiday.
+ */
+function readTranscript(lines: readonly string[]): {
+  destinationWant: string;
+  dates: string;
+  nights: number | null;
+  wants: string[];
+  dealbreakers: string[];
+  notes: string[];
+} {
+  const wants: string[] = [];
+  const dealbreakers: string[] = [];
+  const notes: string[] = [];
+  let destinationWant = "";
+  let dates = "";
+  let nights: number | null = null;
+
+  for (const line of lines) {
+    for (const sentence of sentencesOf(line)) {
+      // The privacy ask covers its own sentence and no more: "Lisbon in May. I
+      // can do $700, keep that quiet" hides the number, not the destination.
+      const hushed = HUSH_PATTERN.test(sentence);
+
+      for (const clause of clausesOf(sentence)) {
+        const night = NIGHTS_PATTERN.exec(clause);
+        if (night) {
+          const n = Number(night[1]);
+          if (Number.isFinite(n)) nights = n;
+        }
+
+        const date = DATE_PATTERN.exec(clause);
+        if (date && !dates) dates = date[0].trim();
+
+        // The money and the ask to keep it quiet are both handled elsewhere —
+        // the ceiling by `budgetIn`, the privacy by `budgetIsPrivate` — and
+        // neither belongs on the list of things the agent argues for.
+        if (mentionsMoney(clause)) continue;
+        if (HUSH_PATTERN.test(clause)) continue;
+
+        // A clause that is only a date or a night count is when they are
+        // going, not something the agent argues for.
+        const rest = clause.replace(DATE_PATTERN, "").replace(NIGHTS_PATTERN, "").trim();
+        const bare = rest.replace(/[^a-z]/gi, "").length < 3;
+
+        const item = asLine(clause);
+
+        // The first real thing anybody says is where they want to go, even
+        // when they say it in the same breath as the number.
+        if (!destinationWant && !bare) {
+          destinationWant = item;
+          continue;
+        }
+        if (bare) continue;
+
+        if (REFUSAL_PATTERN.test(clause)) {
+          if (!dealbreakers.includes(item)) dealbreakers.push(item);
+          continue;
+        }
+        if (hushed) {
+          const note = `private: ${item.charAt(0).toLowerCase()}${item.slice(1)}`;
+          if (!notes.includes(note)) notes.push(note);
+          continue;
+        }
+        if (!wants.includes(item)) wants.push(item);
+      }
+    }
+  }
+
+  return { destinationWant, dates, nights, wants, dealbreakers, notes };
+}
+
+/** Both lists, in order, without repeats. */
+function merge(first: readonly string[], second: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const item of [...first, ...second]) {
+    if (item.trim() && !out.includes(item)) out.push(item);
+  }
+  return out;
+}
+
+/**
+ * Rebuilds a `Brief`-shaped object from the conversation and from whatever the
+ * caller already had in `context`.
+ *
+ * The context is the brief the screen is currently showing, so it carries
+ * everything earlier turns established — including a seeded brief, when the
+ * scripted demo is on. Anything it does not carry is read out of what the
+ * human typed. Nothing is invented: a person who has named no ceiling gets
+ * `null`, not a plausible number, because the fairness meter counts these
+ * fields and a fabricated want is a concession somebody never made.
  */
 function briefExtract(req: CompletionRequest): Record<string, unknown> {
   const ctx = req.context;
   const transcript = Array.isArray(ctx?.transcript) ? ctx.transcript : [];
-  const humanText = transcript
-    .map((entry) => (isRecord(entry) && typeof entry.text === "string" ? entry.text : ""))
-    .concat(ctxString(ctx, "lastHumanMessage", "lastMessage", "message"))
-    .join(" ");
+  // `lastHumanMessage` is usually the final line of the transcript as well, so
+  // the two sources are merged rather than concatenated: reading the same
+  // sentence twice would file its destination once and then again as a want.
+  const humanLines = merge(
+    transcript
+      .filter((entry) => isRecord(entry) && entry.role === "human")
+      .map((entry) => (isRecord(entry) && typeof entry.text === "string" ? entry.text : "")),
+    [ctxString(ctx, "lastHumanMessage", "lastMessage", "message")],
+  );
 
-  const budget = ctxNumber(ctx, "budgetCeiling", "budget") ?? budgetIn(humanText) ?? 600;
+  const said = readTranscript(humanLines);
+  const spokenBudget = budgetIn(humanLines.join(" "));
   const participantId = speakerOf(req);
 
   return {
     participantId,
-    destinationWant: ctxString(ctx, "destinationWant", "destination") || "Somewhere warm, with a beach",
-    dates: ctxString(ctx, "dates") || "Mar 14–19",
-    nights: ctxNumber(ctx, "nights") ?? 5,
-    budgetCeiling: budget,
+    destinationWant: said.destinationWant || ctxString(ctx, "destinationWant", "destination"),
+    dates: said.dates || ctxString(ctx, "dates"),
+    nights: said.nights ?? ctxNumber(ctx, "nights"),
+    // The transcript wins over the context: the number they just said is the
+    // number, even when an earlier turn established a different one.
+    budgetCeiling: spokenBudget ?? ctxNumber(ctx, "budgetCeiling", "budget"),
     budgetIsPrivate: ctx?.budgetIsPrivate === false ? false : true,
-    dealbreakers: ctxStrings(ctx, "dealbreakers") ?? ["No flights before 8am"],
-    wants: ctxStrings(ctx, "wants") ?? ["A beach every day", "Late flights", "No passport hassle"],
-    notes: ctxStrings(ctx, "notes") ?? ["private: money is tight until the job starts"],
+    dealbreakers: merge(ctxStrings(ctx, "dealbreakers") ?? [], said.dealbreakers),
+    wants: merge(ctxStrings(ctx, "wants") ?? [], said.wants),
+    notes: merge(ctxStrings(ctx, "notes") ?? [], said.notes),
     rawTranscript: transcript,
   };
 }
@@ -714,6 +874,8 @@ function cannedData(req: CompletionRequest): unknown {
     }
     case "offer-check":
       return offerCheck(req);
+    case "itinerary":
+      return cannedItinerary(tripFrom(req));
     case "final-plan":
       return FINAL_PLAN;
     case "agent-report":
@@ -866,7 +1028,9 @@ export class OfflineProvider implements LLMProvider {
 
   async text(req: CompletionRequest): Promise<CompletionResult<string>> {
     const value = this.line(req);
-    return { value, raw: value, usage: offlineUsage() };
+    // No sources, ever: this provider does not reach the network, and an
+    // empty list is how the rest of the app knows nothing was looked up.
+    return { value, raw: value, usage: offlineUsage(), sources: [] };
   }
 
   async json<T>(
@@ -877,7 +1041,7 @@ export class OfflineProvider implements LLMProvider {
 
     const direct = schema.safeParse(seed);
     if (direct.success) {
-      return { value: direct.data, raw: safeStringify(seed), usage: offlineUsage() };
+      return { value: direct.data, raw: safeStringify(seed), usage: offlineUsage(), sources: [] };
     }
 
     let built: unknown;
@@ -888,7 +1052,7 @@ export class OfflineProvider implements LLMProvider {
     }
     const second = schema.safeParse(built);
     const value = (second.success ? second.data : built) as T;
-    return { value, raw: safeStringify(value), usage: offlineUsage() };
+    return { value, raw: safeStringify(value), usage: offlineUsage(), sources: [] };
   }
 
   /** The spoken form of each tag, for callers that want prose rather than fields. */
@@ -917,6 +1081,8 @@ export class OfflineProvider implements LLMProvider {
       }
       case "offer-check":
         return String(offerCheck(req).note);
+      case "itinerary":
+        return cannedItinerary(tripFrom(req)).headline;
       case "brief-extract":
         return safeStringify(briefExtract(req));
     }

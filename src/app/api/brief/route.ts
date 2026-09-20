@@ -13,6 +13,14 @@
  * Nothing here is public. This is the one place a real budget is allowed to
  * exist in plain text; `lib/negotiation/redaction.ts` is what keeps it out of
  * the town.
+ *
+ * Every turn is saved to the session before it is answered, which is what makes
+ * the briefing screen a real step rather than a demo of one: the conversation,
+ * the fields it filled in and the secret it locked all survive a reload, the
+ * walk to step 2 and back, and a restarted server. It is also what the town
+ * argues with — the negotiation reads `session.participants[id].brief`, so a
+ * turn that is not saved is a thing the person said that their agent never
+ * hears.
  */
 
 import { NextResponse } from "next/server";
@@ -85,7 +93,7 @@ function keptPrivateLabel(lastHuman: string, brief: Brief): string | null {
 function replySystem(name: string): string {
   return [
     `You are ${name}'s agent in twocents.ai. You are talking to ${name} alone, in private.`,
-    "Your job is to learn what they actually want — destination, dates, the real spending ceiling, hard nos — so you can argue their side later with three other agents.",
+    "Your job is to learn what they actually want — destination, dates, the real spending ceiling, hard nos — so you can work the plan out later with three other agents.",
     "Ask for exactly one missing thing at a time. Two sentences maximum. Plain, warm, specific. No marketing, no em dashes, no lists.",
     "When they name a number or tell you to keep something quiet, say plainly that it stays with you and name what the others will hear instead. Never promise anything you cannot enforce.",
   ].join("\n");
@@ -174,6 +182,8 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   // The transcript is ours, not the model's: it is the literal chat, and a
   // model that paraphrases it would quietly rewrite what the human said.
+  // `said` stops at the human's line on purpose: the kept-private badge is
+  // derived from it, and it is about what the human just told their agent.
   const said: Brief = {
     ...extracted.value,
     participantId,

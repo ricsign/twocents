@@ -337,10 +337,10 @@ const COPY: Record<ScenarioKind, KindCopy> = {
         key: "guided",
         label: "The organised version",
         where: "Somebody else does the planning",
-        venueNote: "a guide, a schedule, and nothing left to argue about",
+        venueNote: "a guide, a schedule, and nothing left to work out",
         logisticsNote: "One booking covers all four of us",
         highlight: "Nobody has to organise it",
-        downgrade: "four people arguing in a car park",
+        downgrade: "four people working it out in a car park",
         tags: ["guide", "tour", "organised", "organized", "planned", "easy", "sorted"],
       },
     ],
@@ -904,7 +904,7 @@ function openerBeat(hints: OfflineHints, scenario: Scenario, step: number): Scen
       [
         `Fine — ${lower(scenario.agreedTemplate.label)}. I’ll let ${headline} go, as long as ${kept} is real.`,
         `I’ve said my piece about ${headline}. I’m not going to be the one who kills this — book it.`,
-        `Still a yes from me. Let’s stop arguing and send it.`,
+        `Still a yes from me. Let’s call it and send it.`,
       ],
       ["Nothing new from me.", "Still a yes.", "Same answer as last round.", "Yes, again."],
       [
@@ -1129,7 +1129,7 @@ export function scenarioReport(
       gotYou: squeeze(`${label}, ${scenario.when}, at ${price} ${unit} — and three other people who’ll actually turn up.`),
       tradedAway: squeeze(`${capitalize(lower(wantOf(opener)))}. That’s the one you lose here, and you should hear it from me rather than read it off the plan.`),
       why: squeeze(
-        `${scenario.premiumTemplate.label} was never going to clear everyone at ${money(scenario.premiumPrice)} ${unit}. I held it into the second round, then traded it for ${lower(wantOf(trader))} and a price nobody had to argue with.`,
+        `${scenario.premiumTemplate.label} was never going to clear everyone at ${money(scenario.premiumPrice)} ${unit}. I held it into the second round, then traded it for ${lower(wantOf(trader))} and a price nobody had to push back on.`,
       ),
     };
   }
@@ -1165,7 +1165,7 @@ export function scenarioReport(
     gotYou: squeeze(`${capitalize(lower(wantOf(backer)))}, at ${price} ${unit}. Everything you actually asked for.`),
     tradedAway: squeeze(`Nothing. You were the cheapest person in the room to satisfy and it cost you no ground.`),
     why: squeeze(
-      `${label} cleared what you wanted on its own, so I spent my turns backing ${holdout.name}’s side instead of arguing for you.`,
+      `${label} cleared what you wanted on its own, so I spent my turns backing ${holdout.name}’s side instead of pushing for you.`,
     ),
   };
 }

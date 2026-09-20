@@ -23,7 +23,7 @@ import {
   type CompletionRequest,
   type CompletionResult,
   type LLMProvider,
-  type TaskTag,
+  type SearchSource,
 } from "@/lib/llm/provider";
 
 /** The single tool every structured call is forced through. */
@@ -107,6 +107,45 @@ function emitBlockOf(
   );
 }
 
+/**
+ * Every page a searching response actually opened, oldest first.
+ *
+ * Read off the `web_search_tool_result` blocks rather than out of the model's
+ * prose, which is the difference between a link somebody can click and a URL a
+ * model remembered. A search that errored comes back as an error block instead
+ * of an array, and contributes nothing.
+ */
+function searchSourcesOf(message: Anthropic.Messages.Message): SearchSource[] {
+  const found: SearchSource[] = [];
+  const seen = new Set<string>();
+
+  for (const block of message.content) {
+    if (block.type !== "web_search_tool_result") continue;
+    const results = block.content;
+    if (!Array.isArray(results)) continue;
+
+    for (const result of results) {
+      if (result.type !== "web_search_result") continue;
+      const url = result.url?.trim();
+      if (!url || seen.has(url)) continue;
+
+      let host: string;
+      try {
+        host = new URL(url).hostname.replace(/^www\./, "");
+      } catch {
+        // A result we cannot even parse a host out of is not a link we are
+        // willing to print next to an agent's line.
+        continue;
+      }
+
+      seen.add(url);
+      found.push({ title: result.title?.trim() || host, url, host });
+    }
+  }
+
+  return found;
+}
+
 /** Joins every text block of a response into the one string a caller wanted. */
 function textOf(message: Anthropic.Messages.Message): string {
   return message.content
@@ -140,7 +179,7 @@ export class AnthropicProvider implements LLMProvider {
 
   async text(req: CompletionRequest): Promise<CompletionResult<string>> {
     const tier = TIER_FOR_TASK[req.tag];
-    const message = await this.guarded(req.tag, (signal) =>
+    const message = await this.guarded(req, (signal) =>
       this.client.messages.create(
         {
           model: MODELS[tier],
@@ -161,6 +200,7 @@ export class AnthropicProvider implements LLMProvider {
       value: raw,
       raw,
       usage: usageFrom(tier, message.usage.input_tokens, message.usage.output_tokens),
+      sources: searchSourcesOf(message),
     };
   }
 
@@ -186,7 +226,7 @@ export class AnthropicProvider implements LLMProvider {
       ? [{ type: "web_search_20250305", name: "web_search", max_uses: searching.maxUses }, tool]
       : [tool];
 
-    const message = await this.guarded(req.tag, (signal) =>
+    const message = await this.guarded(req, (signal) =>
       this.client.messages.create(
         {
           model: MODELS[tier],
@@ -203,14 +243,21 @@ export class AnthropicProvider implements LLMProvider {
 
     let inputTokens = message.usage.input_tokens;
     let outputTokens = message.usage.output_tokens;
+    // Gathered from the searching response, not from the sweep-up one: the
+    // sweep-up call is the model repeating itself into the tool and searches
+    // nothing.
+    const sources = searchSourcesOf(message);
     let block = emitBlockOf(message);
+    // The response the answer actually came from, which after a sweep-up is
+    // not the one above. It is what carries the stop reason worth reporting.
+    let answering = message;
 
     if (!block && searching) {
       // It searched and then answered in prose. The findings are in the content
       // we just got, so they are handed back verbatim and the answer is forced
       // out of them — one extra call, only on the turn that needed it, and no
       // second search.
-      const followUp = await this.guarded(req.tag, (signal) =>
+      const followUp = await this.guarded(req, (signal) =>
         this.client.messages.create(
           {
             model: MODELS[tier],
@@ -230,23 +277,36 @@ export class AnthropicProvider implements LLMProvider {
       inputTokens += followUp.usage.input_tokens;
       outputTokens += followUp.usage.output_tokens;
       block = emitBlockOf(followUp);
+      answering = followUp;
     }
 
+    // A response that stopped on the token ceiling has a truncated tool input,
+    // which fails the schema with fields simply absent — and reads like the
+    // model refusing to fill them in. Naming the real cause here is the
+    // difference between "raise max_tokens" and an afternoon of prompt edits.
+    const truncated = answering.stop_reason === "max_tokens";
+    const because = truncated
+      ? ` (hit the ${req.maxTokens ?? DEFAULT_MAX_TOKENS}-token ceiling mid-answer)`
+      : "";
+
     if (!block) {
-      throw new LlmError(req.tag, "Model did not call the emit tool");
+      throw new LlmError(req.tag, `Model did not call the emit tool${because}`);
     }
 
     const parsed = schema.safeParse(block.input);
     if (!parsed.success) {
-      throw new LlmError(req.tag, `Tool output failed schema: ${parsed.error.message}`, {
-        cause: parsed.error,
-      });
+      throw new LlmError(
+        req.tag,
+        `Tool output failed schema${because}: ${parsed.error.message}`,
+        { cause: parsed.error },
+      );
     }
 
     return {
       value: parsed.data,
       raw: JSON.stringify(block.input),
       usage: usageFrom(tier, inputTokens, outputTokens),
+      sources,
     };
   }
 
@@ -255,14 +315,15 @@ export class AnthropicProvider implements LLMProvider {
    * neither `text` nor `json` can forget one of them.
    */
   private async guarded<T>(
-    tag: TaskTag,
+    req: CompletionRequest,
     run: (signal: AbortSignal) => Promise<T>,
   ): Promise<T> {
+    const tag = req.tag;
     let lastError: unknown;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       if (attempt > 0) await sleep(RETRY_BACKOFF_MS);
       try {
-        return await this.deadline(tag, run);
+        return await this.deadline(req, run);
       } catch (err) {
         lastError = err;
         if (!isTransient(err)) break;
@@ -275,10 +336,12 @@ export class AnthropicProvider implements LLMProvider {
 
   /** Races the request against the clock and aborts the loser. */
   private deadline<T>(
-    tag: TaskTag,
+    req: CompletionRequest,
     run: (signal: AbortSignal) => Promise<T>,
   ): Promise<T> {
-    const ms = llmTimeoutMs();
+    // The call's own ceiling when it set one, the shared default otherwise.
+    const ms = req.timeoutMs ?? llmTimeoutMs();
+    const tag = req.tag;
     const controller = new AbortController();
 
     return new Promise<T>((resolve, reject) => {

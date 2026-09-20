@@ -5,7 +5,7 @@ import type { DisplayNames, ParticipantId } from "@/lib/characters";
 import type { Brief, BriefMessage } from "@/lib/types";
 import { PixelButton, PixelLink } from "@/components/ui/PixelButton";
 import { AgentKnowsPanel } from "./AgentKnowsPanel";
-import { BriefChat, type ChatMessage } from "./BriefChat";
+import { BriefChat, chatMessagesFrom, type ChatMessage } from "./BriefChat";
 import { BriefedRoster } from "./BriefedRoster";
 
 /** Gives a stored transcript line the key React needs to render it. */
@@ -69,6 +69,47 @@ export function BriefScreen({
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [brief, setBrief] = useState<Brief>(initialBrief);
   const [pending, setPending] = useState(false);
+
+  /**
+   * Forget this conversation and go back to the agent's opening question.
+   *
+   * The screen clears first and the write follows, for the same reason the
+   * approve button does it in that order: the tap is the thing the person is
+   * watching. The empty brief is written out here rather than imported from
+   * `lib/seed`, which would pull the whole seeded grad trip into the browser
+   * bundle to copy ten empty fields; `blankBrief` there is the server's copy of
+   * the same shape and `briefSchema` is what keeps them honest.
+   */
+  async function startOver(): Promise<void> {
+    if (pending) return;
+    setMessages(chatMessagesFrom([]));
+    setBrief({
+      participantId,
+      destinationWant: "",
+      dates: "",
+      nights: null,
+      budgetCeiling: null,
+      budgetIsPrivate: true,
+      dealbreakers: [],
+      wants: [],
+      notes: [],
+      rawTranscript: [],
+    });
+    try {
+      await fetch("/api/session", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "clearBrief",
+          viewer: participantId,
+          participantId,
+        }),
+      });
+    } catch {
+      // The screen is already clear and the next turn writes the whole brief
+      // anyway, so a failed clear costs nothing a person can see.
+    }
+  }
 
   async function send(text: string) {
     const mine: ChatMessage = { id: `h-${Date.now()}`, role: "human", text };
@@ -162,6 +203,7 @@ export function BriefScreen({
           messages={messages}
           pending={pending}
           onSend={send}
+          onStartOver={() => void startOver()}
           names={names}
         />
       </div>

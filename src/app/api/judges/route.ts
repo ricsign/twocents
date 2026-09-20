@@ -94,7 +94,7 @@ function transcriptFor(mini: MiniBrief, topic: string): BriefMessage[] {
   if (mini.budget !== null) {
     lines.push({
       role: "agent",
-      text: "And the most you want to spend? I will argue around it, never say it.",
+      text: "And the most you want to spend? I will plan around it, never say it.",
     });
     lines.push({ role: "human", text: `${mini.budget}. Keep that between us.` });
   }

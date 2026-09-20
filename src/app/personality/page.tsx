@@ -11,7 +11,7 @@ import { displayNamesFromView, sessionViewFor } from "@/lib/session-view";
 export const metadata: Metadata = {
   title: "Pick your agent’s personality — twocents.ai",
   description:
-    "Four sliders and a line about you decide how hard your agent fights in the room, and how it sounds doing it.",
+    "Four sliders and a line about you decide how firmly your agent holds your side in the room, and how it sounds doing it.",
 };
 
 /** The session is per-process and the judges' round rewrites the names in it. */

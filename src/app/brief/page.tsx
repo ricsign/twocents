@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
 import { TopBar } from "@/components/ui/TopBar";
 import { BriefScreen } from "@/components/brief/BriefScreen";
-import type { ChatMessage } from "@/components/brief/BriefChat";
+import { chatMessagesFrom } from "@/components/brief/BriefChat";
 import { PARTICIPANT_IDS, YOU, type ParticipantId } from "@/lib/characters";
 import { hasBriefed } from "@/lib/flow";
 import { SAMPLE_BRIEF } from "@/lib/seed";
 import { getOrCreateDefault } from "@/lib/session";
-import { displayNamesOf, type Brief, type DemoSession } from "@/lib/types";
+import { displayNamesOf, type DemoSession } from "@/lib/types";
 
 export const metadata: Metadata = {
   title: "Brief your agent — twocents.ai",
@@ -18,15 +18,6 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 /**
- * The first thing the agent says when there is nothing to come back to.
- *
- * Only used on an empty transcript. Once the human has said anything, the
- * stored conversation is what renders, opening line included.
- */
-const OPENING_QUESTION =
-  "Before I go argue with the others: where do you want to go, when, and what’s the real number?";
-
-/**
  * Who has already talked to their agent, derived rather than listed.
  *
  * A hardcoded roster was right exactly once, at time zero. It said the same
@@ -35,17 +26,6 @@ const OPENING_QUESTION =
  */
 function briefedIn(session: DemoSession): ParticipantId[] {
   return PARTICIPANT_IDS.filter((id) => hasBriefed(session.participants[id].brief));
-}
-
-/** The stored conversation, or the one line that starts one. */
-function openingMessages(brief: Brief): ChatMessage[] {
-  if (brief.rawTranscript.length === 0) {
-    return [{ id: "m0", role: "agent", text: OPENING_QUESTION }];
-  }
-  return brief.rawTranscript.map((message, index) => ({
-    ...message,
-    id: `stored-${index}`,
-  }));
 }
 
 /**
@@ -63,7 +43,7 @@ export default function BriefPage() {
       <BriefScreen
         participantId={YOU}
         briefed={briefedIn(session)}
-        initialMessages={openingMessages(brief)}
+        initialMessages={chatMessagesFrom(brief.rawTranscript)}
         initialBrief={brief}
         sampleBrief={SAMPLE_BRIEF}
         names={displayNamesOf(session)}

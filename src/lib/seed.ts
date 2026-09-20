@@ -22,6 +22,14 @@
  *   `design/04-plan.clean.html` prints them. The fifth want is the one nobody
  *   types into a group chat.
  *
+ * One person is deliberately *not* seeded. The `YOU` seat belongs to whoever
+ * is sitting in front of the screen, so that agent starts with an empty brief
+ * and an empty transcript and learns everything from the conversation it
+ * actually has. `SAMPLE_BRIEF` below is the same content the seat used to ship
+ * with, kept as the one-tap shortcut the briefing screen offers a demo that
+ * has no time to type. The other three stay seeded because there is no sign-in
+ * yet and nobody is there to brief them.
+ *
  * Server-only. No React, no DOM.
  */
 
@@ -186,7 +194,7 @@ const JORDAN_BRIEF: Brief = {
   rawTranscript: [
     line("agent", "What makes this trip worth taking for you?"),
     line("human", "One full day out on a catamaran. That's the trip. Everything else is negotiable."),
-    line("agent", "That's a dealbreaker, not a preference, and I'll argue it like one. Budget?"),
+    line("agent", "That's a dealbreaker, not a preference, and I'll hold it like one. Budget?"),
     line("human", "900, and I'd rather spend it on the boat than the hotel."),
   ],
 };
@@ -234,20 +242,22 @@ const PRIYA_BRIEF: Brief = {
  * destination, a date range, a $600 ceiling and four wants that nobody in the
  * room had typed, which reads as a mock rather than a product.
  */
-const EMPTY_YOU_BRIEF: Brief = {
-  participantId: "maya",
-  destinationWant: "",
-  dates: "",
-  nights: null,
-  budgetCeiling: null,
-  // True from the start: a number is private until its owner says otherwise,
-  // never the other way round.
-  budgetIsPrivate: true,
-  dealbreakers: [],
-  wants: [],
-  notes: [],
-  rawTranscript: [],
-};
+export function blankBrief(participantId: ParticipantId): Brief {
+  return {
+    participantId,
+    destinationWant: "",
+    dates: "",
+    nights: null,
+    budgetCeiling: null,
+    // True from the start: a number is private until its owner says otherwise,
+    // never the other way round.
+    budgetIsPrivate: true,
+    dealbreakers: [],
+    wants: [],
+    notes: [],
+    rawTranscript: [],
+  };
+}
 
 /**
  * The briefing chat this brief came out of, as four lines.
@@ -305,7 +315,7 @@ export const SAMPLE_BRIEF: Brief = {
 
 /** The four briefs, keyed the way every other module addresses them. */
 export const SEED_BRIEFS: Record<ParticipantId, Brief> = {
-  maya: EMPTY_YOU_BRIEF,
+  maya: blankBrief("maya"),
   jordan: JORDAN_BRIEF,
   sam: SAM_BRIEF,
   priya: PRIYA_BRIEF,
@@ -345,10 +355,11 @@ function newId(): string {
  * rather than to drift in the seed.
  */
 export function createSeedSession(id?: string): DemoSession {
+  const briefs = SEED_BRIEFS;
   const participants = {} as Record<ParticipantId, ParticipantState>;
   for (const participantId of PARTICIPANT_IDS) {
     participants[participantId] = {
-      brief: clone(SEED_BRIEFS[participantId]),
+      brief: clone(briefs[participantId]),
       personality: clone(SEED_PERSONALITIES[participantId]),
       approved: false,
     };
@@ -362,6 +373,7 @@ export function createSeedSession(id?: string): DemoSession {
     plan: null,
     fairness: null,
     reports: null,
+    itinerary: null,
     usage: { ...EMPTY_USAGE },
     startedAt: Date.now(),
     // Nothing has been edited yet, so the offline provider may still replay the

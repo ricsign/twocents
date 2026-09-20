@@ -1,11 +1,17 @@
 /**
  * The claim the screen makes out loud: nobody was overruled.
  *
- * The five coloured boxes per row are the thing a judge reads from across the
- * room, and they are also the thing a screen reader cannot read at all. So the
+ * The coloured boxes per row are the thing a judge reads from across the room,
+ * and they are also the thing a screen reader cannot read at all. So the
  * segments are marked decorative and the caption beside them carries the whole
  * meaning — "4 of 5 wants kept", "3 of 5 · gave up the resort" — with the row
  * labelled by the person's name and that caption together.
+ *
+ * One box per want, counted from `wantsTotal`. The count is not fixed because
+ * the number of wants is not fixed: a judges' round briefs one want a seat plus
+ * a private ceiling, and printing five boxes for two wants would claim three
+ * concessions that were never asked for. Rows with different totals no longer
+ * compare by eye, which is the price of every bar being true.
  */
 
 import {
@@ -16,8 +22,8 @@ import {
 import { Avatar } from "@/components/ui/Sprite";
 import type { FairnessReport, FairnessRow } from "@/lib/types";
 
-/** Fixed slots, so every bar is the same length and rows compare by eye. */
-const SLOTS = 5;
+/** Only used when a brief carried no wants at all, so a row is never empty. */
+const MIN_SLOTS = 1;
 
 /**
  * "3 of 5 · gave up the resort".
@@ -49,14 +55,30 @@ function captionFor(row: FairnessRow): string {
   return phrase ? `${kept} · ${phrase}` : `${kept} wants kept`;
 }
 
-/** Five boxes, `filled` of them in the person's accent. Decorative by design. */
-function Segments({ filled, color }: { filled: number; color: string }) {
+/** How many boxes this person's row gets: one per want they briefed. */
+function slotsFor(row: FairnessRow): number {
+  return Math.max(MIN_SLOTS, row.wantsTotal);
+}
+
+/** One box a want, `filled` of them in the person's accent. Decorative. */
+function Segments({
+  slots,
+  filled,
+  color,
+}: {
+  slots: number;
+  filled: number;
+  color: string;
+}) {
   return (
     <div
       aria-hidden="true"
-      className="grid w-full min-w-[120px] grid-cols-5 gap-1.5"
+      className="grid w-full min-w-[120px] gap-1.5"
+      // Inline rather than a `grid-cols-*` class: the count is data, and
+      // Tailwind only ships the classes it can see in the source.
+      style={{ gridTemplateColumns: `repeat(${slots}, minmax(0, 1fr))` }}
     >
-      {Array.from({ length: SLOTS }, (_, i) => (
+      {Array.from({ length: slots }, (_, i) => (
         <div
           key={i}
           className="seg"
@@ -73,7 +95,8 @@ function Row({ row, names }: { row: FairnessRow; names?: DisplayNames }) {
   const nameId = `fairness-name-${row.participantId}`;
   const captionId = `fairness-caption-${row.participantId}`;
   // A bar can only fill the slots it has, however the scorer counted.
-  const filled = Math.max(0, Math.min(SLOTS, row.wantsKept));
+  const slots = slotsFor(row);
+  const filled = Math.max(0, Math.min(slots, row.wantsKept));
 
   return (
     <li
@@ -88,7 +111,7 @@ function Row({ row, names }: { row: FairnessRow; names?: DisplayNames }) {
       </span>
 
       <div className="col-start-2 min-[700px]:col-start-3">
-        <Segments filled={filled} color={character.color} />
+        <Segments slots={slots} filled={filled} color={character.color} />
       </div>
 
       <span

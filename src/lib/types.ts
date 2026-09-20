@@ -105,7 +105,7 @@ export function describePersonality(p: Personality): string {
   if (p.stubborn >= t.high) clauses.push("Holds its position hard");
   else if (p.stubborn >= t.lean) clauses.push("Gives ground slowly");
   else if (p.stubborn <= t.low) clauses.push("Folds early to keep the peace");
-  else clauses.push("Concedes when the argument is fair");
+  else clauses.push("Gives ground when the trade is fair");
 
   if (p.blunt >= t.high) clauses.push("says it flat, no cushioning");
   else if (p.blunt >= t.lean) clauses.push("opens diplomatically but gets blunt under pressure");
@@ -435,6 +435,23 @@ export function mandateFromBrief(
  * same reason `secretsKept` and `groupTotal` are computed rather than
  * generated. See `lib/negotiation/feasibility.ts`.
  */
+/**
+ * One page a live search actually opened.
+ *
+ * Distinct from the bare `sources` host list below, which is the model's own
+ * account of where it looked. These come back from the API alongside the
+ * answer, so they are pages that were fetched — which is what makes them safe
+ * to render as a link a person can click from the transcript.
+ */
+export const searchSourceSchema = z.object({
+  title: z.string(),
+  url: z.string(),
+  host: z.string(),
+});
+
+/** A page a search opened. */
+export type SearchSource = z.infer<typeof searchSourceSchema>;
+
 export const offerFeasibilitySchema = z.object({
   /** False only when the claimed price is clearly out of reach. */
   bookable: z.boolean(),
@@ -444,6 +461,14 @@ export const offerFeasibilitySchema = z.object({
   note: z.string(),
   /** Bare host names behind the verdict. Empty when nothing was searched. */
   sources: z.array(z.string()),
+  /**
+   * The pages the check opened, as the API reported them.
+   *
+   * Defaulted rather than required because sessions written by an earlier build
+   * are read back from disk through this schema, and a missing field should
+   * mean "no links recorded", not "throw the whole session away".
+   */
+  links: z.array(searchSourceSchema).default([]),
 });
 
 /** The verdict on one offer. */
@@ -496,6 +521,21 @@ export type TurnKind = z.infer<typeof turnKindSchema>;
  * it records the real reason behind the line so the plan screen can show "kept
  * private: $600 budget" beside a sentence that never mentioned money.
  */
+/**
+ * A line's receipt: the sentence to print and the pages behind it.
+ *
+ * Shared by the stored turn and the `speak` frame, so what the town renders
+ * live and what the transcript renders on a reload can never disagree.
+ */
+export const negotiationSourcedSchema = z.object({
+  /** "A quick web search shows nonstop flights from $340." */
+  note: z.string(),
+  links: z.array(searchSourceSchema),
+});
+
+/** What a line is sourced on. */
+export type NegotiationSourced = z.infer<typeof negotiationSourcedSchema>;
+
 export const negotiationTurnSchema = z.object({
   id: z.string(),
   round: z.number(),
@@ -507,6 +547,15 @@ export const negotiationTurnSchema = z.object({
   offer: offerSchema.optional(),
   /** Never shown in the room; surfaced only to the speaker's own human. */
   privateReasonKept: z.string().optional(),
+  /**
+   * Where this line's facts came from, when it has any.
+   *
+   * Set by the engine — never by the model — on a turn whose option was priced
+   * against the live web, and rendered in the transcript as a sentence plus the
+   * pages behind it. An agent that says "a quick web search shows" and cannot
+   * show you the search is exactly the thing this product is arguing against.
+   */
+  sourced: negotiationSourcedSchema.optional(),
 });
 
 /** One line in the transcript. */
@@ -674,6 +723,8 @@ export const negotiationEventSchema = z.discriminatedUnion("type", [
     kind: turnKindSchema,
     text: z.string(),
     privateReasonKept: z.string().optional(),
+    /** The live search behind this line, when there was one. */
+    sourced: negotiationSourcedSchema.optional(),
   }),
   /** A new option hit the table; the UI slides in an offer card. */
   z.object({
@@ -707,6 +758,111 @@ export const negotiationEventSchema = z.discriminatedUnion("type", [
 
 /** One frame of the negotiation stream. */
 export type NegotiationEvent = z.infer<typeof negotiationEventSchema>;
+
+/* -------------------------------------------------------------------------- */
+/* 11b. Itinerary                                                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One thing you can click, with the site it came from.
+ *
+ * `host` is stored next to `url` rather than derived at render time because the
+ * PDF prints the host as the visible text — a forty-character booking URL on a
+ * page is unreadable, and "expedia.com" is the part a person checks before they
+ * click.
+ */
+export const itineraryLinkSchema = z.object({
+  label: z.string(),
+  url: z.string(),
+  host: z.string(),
+});
+
+/** One line of a day: a time, what happens, what it costs, where to book it. */
+export const itineraryItemSchema = z.object({
+  /** "9:00am", or "" for something that has no clock time. */
+  time: z.string(),
+  title: z.string(),
+  detail: z.string(),
+  /** Per person, USD. Null for the things that are free. */
+  costPerPerson: z.number().nullable(),
+  link: itineraryLinkSchema.nullable(),
+});
+
+export const itineraryDaySchema = z.object({
+  day: z.number(),
+  /** "Sat, Mar 14" — printed, never parsed. */
+  date: z.string(),
+  title: z.string(),
+  items: z.array(itineraryItemSchema),
+  /** Per person for this day, USD. Computed from the items, not asserted. */
+  subtotalPerPerson: z.number(),
+  /**
+   * A real photograph of this place, already fetched and checked. Null when
+   * nothing usable came back, which the PDF renders as a plain band rather than
+   * a broken box.
+   */
+  photo: z
+    .object({
+      /** Data URI. Embedded rather than linked so the PDF works offline. */
+      dataUri: z.string(),
+      /** The Commons file page, printed as the credit line. */
+      creditUrl: z.string(),
+      credit: z.string(),
+    })
+    .nullable(),
+});
+
+/**
+ * What the availability pass did, so the document can say it out loud.
+ *
+ * The page claims the times in it were checked against posted opening hours,
+ * and a claim like that has to be answerable: these are the counts behind it.
+ * Optional because a session written before the pass existed is read back
+ * through this schema, and a missing field means "not checked", which is what
+ * the UI then says.
+ */
+export const itineraryChecksSchema = z.object({
+  /** How many dated rows went through the check. */
+  itemsChecked: z.number(),
+  /** How many the repair pass put right. */
+  repaired: z.number(),
+  /** How many were dropped because they could not be put right. */
+  dropped: z.number(),
+  /** What is still wrong, in sentences, for the page to print plainly. */
+  unresolved: z.array(z.string()),
+});
+
+/** The availability pass's receipt. */
+export type ItineraryChecks = z.infer<typeof itineraryChecksSchema>;
+
+export const itinerarySchema = z.object({
+  destination: z.string(),
+  region: z.string(),
+  dates: z.string(),
+  nights: z.number(),
+  /** One sentence under the title. The trip in a line. */
+  headline: z.string(),
+  flights: itineraryItemSchema,
+  lodging: itineraryItemSchema,
+  days: z.array(itineraryDaySchema),
+  /** Per person all-in, USD. Computed from the parts. */
+  perPerson: z.number(),
+  /** Per person times the party size. */
+  groupTotal: z.number(),
+  /** Every host the plan was built from, deduplicated. */
+  sources: z.array(z.string()),
+  /** `Date.now()` when it was built, printed in the footer. */
+  builtAt: z.number(),
+  /** False when it came from the canned fallback rather than the live web. */
+  live: z.boolean(),
+  /** What the availability check found, when it ran. */
+  checks: itineraryChecksSchema.optional(),
+});
+
+export type ItineraryLink = z.infer<typeof itineraryLinkSchema>;
+export type ItineraryItem = z.infer<typeof itineraryItemSchema>;
+export type ItineraryDay = z.infer<typeof itineraryDaySchema>;
+export type Itinerary = z.infer<typeof itinerarySchema>;
 
 /* -------------------------------------------------------------------------- */
 /* 12. DemoSession                                                             */
@@ -748,6 +904,8 @@ export const demoSessionSchema = z.object({
   fairness: fairnessReportSchema.nullable(),
   /** Null until the run finishes; one private report per person. */
   reports: z.partialRecord(participantIdSchema, agentReportSchema).nullable(),
+  /** Null until all four approve and the itinerary is built. Built once, then cached. */
+  itinerary: itinerarySchema.nullable(),
   usage: usageSchema,
   /** `Date.now()` at creation, used for the "agreed in" figure. */
   startedAt: z.number(),
