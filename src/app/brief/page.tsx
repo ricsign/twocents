@@ -1,14 +1,10 @@
 import type { Metadata } from "next";
 import { TopBar } from "@/components/ui/TopBar";
 import { BriefScreen } from "@/components/brief/BriefScreen";
-import {
-  SEED_BRIEF,
-  SEED_BRIEFED,
-  SEED_MESSAGES,
-  SEED_PARTICIPANT,
-} from "@/components/brief/seed";
+import { chatMessagesFrom } from "@/components/brief/seed";
+import { PARTICIPANT_IDS, YOU } from "@/lib/characters";
 import { getOrCreateDefault } from "@/lib/session";
-import { displayNamesOf } from "@/lib/types";
+import { displayNamesOf, type Brief, type DemoSession } from "@/lib/types";
 
 export const metadata: Metadata = {
   title: "Brief your agent — twocents.ai",
@@ -20,23 +16,49 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 /**
- * Step 1. Opens mid-conversation, with Maya's number already locked, so the
- * kept-secret beat is on screen from the first frame.
+ * Has this person actually told their agent anything?
  *
- * Only the names come from the session; the conversation on screen is still
- * the seeded one.
+ * Read off the brief rather than off a list of names, because the roster has to
+ * be true for a judges' round and for a run somebody is halfway through, not
+ * only for the scripted one. A seeded friend has wants from the first frame; a
+ * person who has said nothing yet has none.
+ */
+function hasBriefed(brief: Brief | undefined): boolean {
+  if (!brief) return false;
+  return (
+    brief.wants.length > 0 ||
+    brief.budgetCeiling !== null ||
+    brief.destinationWant.trim().length > 0
+  );
+}
+
+function briefedIn(session: DemoSession): typeof PARTICIPANT_IDS[number][] {
+  return PARTICIPANT_IDS.filter(
+    (id) => id !== YOU && hasBriefed(session.participants[id]?.brief),
+  );
+}
+
+/**
+ * Step 1: your agent, asking you what you want.
+ *
+ * Everything on screen comes from the session, so the conversation, the panel
+ * beside it and the roster underneath all survive a reload, a navigation to
+ * step 2 and back, and a restarted server. On a fresh session the transcript is
+ * empty and `chatMessagesFrom` supplies the agent's opening question; the
+ * scripted mid-conversation open is `TWOCENTS_SEED_BRIEF_CHAT=1`.
  */
 export default function BriefPage() {
   const session = getOrCreateDefault();
+  const you = session.participants[YOU];
 
   return (
     <div className="flex min-h-screen flex-col bg-parchment min-[1100px]:h-screen min-[1100px]:overflow-hidden">
       <TopBar step={1} tripName={session.tripName} />
       <BriefScreen
-        participantId={SEED_PARTICIPANT}
-        briefed={SEED_BRIEFED}
-        initialMessages={SEED_MESSAGES}
-        initialBrief={SEED_BRIEF}
+        participantId={YOU}
+        briefed={briefedIn(session)}
+        initialMessages={chatMessagesFrom(you?.brief.rawTranscript ?? [])}
+        initialBrief={you.brief}
         names={displayNamesOf(session)}
       />
     </div>

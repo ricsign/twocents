@@ -35,6 +35,7 @@ import { scoreFairness } from "@/lib/negotiation/fairness";
 import {
   UNCHECKED,
   buildFeasibilityRequest,
+  sourcedFrom,
   webSearchEnabled,
 } from "@/lib/negotiation/feasibility";
 import {
@@ -496,7 +497,9 @@ export async function* runNegotiation(
     try {
       const result = await provider.json(request, offerFeasibilitySchema);
       usage = sumUsage(usage, result.usage);
-      return result.value;
+      // The pages come from the call, not from the model's answer: `sources` is
+      // what it says it read, `links` is what it actually opened.
+      return { ...result.value, links: result.sources };
     } catch (error) {
       logOnce("offer-check", error);
       try {
@@ -669,6 +672,10 @@ export async function* runNegotiation(
           );
         }
 
+        // Only a turn that put a priced option on the table has a search
+        // behind it, and only when that search actually opened something.
+        const sourced = sourcedFrom(draft.offer?.feasibility);
+
         const turn: NegotiationTurn = {
           id: `turn-${speaker}-${round}-${turns.length}`,
           round,
@@ -677,6 +684,7 @@ export async function* runNegotiation(
           text: draft.text,
           ...(draft.offer ? { offer: draft.offer } : {}),
           ...(draft.privateReasonKept ? { privateReasonKept: draft.privateReasonKept } : {}),
+          ...(sourced ? { sourced } : {}),
         };
         turns.push(turn);
 
@@ -686,6 +694,7 @@ export async function* runNegotiation(
           kind: turn.kind,
           text: turn.text,
           ...(turn.privateReasonKept ? { privateReasonKept: turn.privateReasonKept } : {}),
+          ...(sourced ? { sourced } : {}),
         };
 
         if (turn.offer) {
@@ -812,7 +821,7 @@ export async function* runNegotiation(
       participantId,
       gotYou: plan.keptWants.join(", "),
       tradedAway: row?.gaveUp ?? "Nothing.",
-      why: "I argued your side and kept what you told me in private to myself.",
+      why: "I spoke for you at the table and kept what you told me in private to myself.",
       secretsKept: [],
     };
 

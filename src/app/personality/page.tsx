@@ -2,14 +2,13 @@ import type { Metadata } from "next";
 import { TopBar } from "@/components/ui/TopBar";
 import { PersonalityScreen } from "@/components/personality/PersonalityScreen";
 import { YOU } from "@/lib/characters";
-import { SEED_PERSONALITIES } from "@/lib/seed";
 import { getOrCreateDefault } from "@/lib/session";
 import { displayNamesOf } from "@/lib/types";
 
 export const metadata: Metadata = {
   title: "Pick your agent’s personality — twocents.ai",
   description:
-    "Four sliders and a line about you decide how hard your agent fights in the room, and how it sounds doing it.",
+    "Four sliders and a line about you decide how firmly your agent holds your side in the room, and how it sounds doing it.",
 };
 
 /**
@@ -18,11 +17,17 @@ export const metadata: Metadata = {
  * writes its own.
  */
 const OPENING_LINE =
-  "Cancun’s a stretch for us. Puerto Rico has the same beaches, and I’ll fight you for the catamaran day.";
+  "Cancun’s a stretch for us. Puerto Rico has the same beaches, and I’d like to keep the catamaran day if we can.";
 
 /** The session is per-process and the judges' round rewrites the names in it. */
 export const dynamic = "force-dynamic";
 
+/**
+ * The sliders come from the session, not from the seed, so coming back to this
+ * screen — after step 3, after a reload, after a restarted server — shows the
+ * agent the person actually built. `PersonalityScreen` saves every change to
+ * the same place half a second after the hand stops.
+ */
 export default function PersonalityPage() {
   const session = getOrCreateDefault();
 
@@ -31,7 +36,7 @@ export default function PersonalityPage() {
       <TopBar step={2} tripName={session.tripName} />
       <PersonalityScreen
         participantId={YOU}
-        initialPersonality={SEED_PERSONALITIES[YOU]}
+        initialPersonality={session.participants[YOU].personality}
         initialLine={OPENING_LINE}
         names={displayNamesOf(session)}
       />

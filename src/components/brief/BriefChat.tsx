@@ -18,12 +18,15 @@ export function BriefChat({
   messages,
   pending,
   onSend,
+  onStartOver,
   names,
 }: {
   participantId: ParticipantId;
   messages: ChatMessage[];
   pending: boolean;
   onSend: (text: string) => void;
+  /** Forget this conversation and ask again. Absent means the control is hidden. */
+  onStartOver?: () => void;
   /** Who this agent speaks for. The cast name when nobody said otherwise. */
   names?: DisplayNames;
 }) {
@@ -46,7 +49,16 @@ export function BriefChat({
 
   return (
     <section className="px-frame m-1 flex min-h-0 flex-1 flex-col bg-card">
-      <ChatHeader participantId={participantId} names={names} />
+      <ChatHeader
+        participantId={participantId}
+        names={names}
+        // Only once there is something to forget: a fresh screen offering to
+        // clear itself is a button that does nothing.
+        onStartOver={
+          messages.some((message) => message.role === "human") ? onStartOver : undefined
+        }
+        busy={pending}
+      />
 
       <div
         role="log"
@@ -96,9 +108,13 @@ export function BriefChat({
 function ChatHeader({
   participantId,
   names,
+  onStartOver,
+  busy,
 }: {
   participantId: ParticipantId;
   names?: DisplayNames;
+  onStartOver?: () => void;
+  busy?: boolean;
 }) {
   return (
     <header className="flex items-center justify-between gap-4 border-b-4 border-ink px-5 py-5 sm:px-7">
@@ -114,13 +130,27 @@ function ChatHeader({
             {agentName(participantId, names)}
           </h1>
           <p className="m-0 text-[15px] font-semibold text-bark">
-            Argues for you. Never repeats you.
+            Plans for you. Never repeats you.
           </p>
         </div>
       </div>
-      <div className="flex shrink-0 items-center gap-2 text-bark">
-        <LockIcon size={14} />
-        <span className="disp text-[9px]">PRIVATE</span>
+      <div className="flex shrink-0 items-center gap-4">
+        {/* Re-briefing your own agent should not mean resetting the demo. This
+            clears your conversation and nobody else's. */}
+        {onStartOver ? (
+          <button
+            type="button"
+            onClick={onStartOver}
+            disabled={busy}
+            className="disp px-press h-9 cursor-pointer border-[3px] border-ink bg-paper px-3 text-[8px] text-ink disabled:opacity-45"
+          >
+            START OVER
+          </button>
+        ) : null}
+        <div className="flex items-center gap-2 text-bark">
+          <LockIcon size={14} />
+          <span className="disp text-[9px]">PRIVATE</span>
+        </div>
       </div>
     </header>
   );

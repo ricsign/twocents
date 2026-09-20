@@ -14,6 +14,7 @@ import { useState } from "react";
 import type { DisplayNames, ParticipantId } from "@/lib/characters";
 import { PARTICIPANT_IDS, displayNameFor } from "@/lib/characters";
 import { Avatar } from "@/components/ui/Sprite";
+import { PixelLink } from "@/components/ui/PixelButton";
 
 export function ApprovalRow({
   you,
@@ -103,6 +104,15 @@ export function ApprovalRow({
         {mine ? "✓ YOU APPROVED" : "APPROVE THE PLAN"}
       </button>
 
+      {/* The payoff for the fourth tap. It appears rather than unlocking in
+          place, because a button that was there all along but greyed out reads
+          as something withheld; this reads as something earned. */}
+      {allIn && !failed ? (
+        <PixelLink href="/itinerary" variant="gold" raised className="h-16 w-full text-[11px]">
+          BUILD THE ITINERARY →
+        </PixelLink>
+      ) : null}
+
       <p
         aria-live="polite"
         className={`m-0 text-[13px] font-semibold ${
@@ -112,7 +122,7 @@ export function ApprovalRow({
         {failed
           ? "That didn’t save. Tap it again."
           : allIn
-            ? "That’s all four. The trip is the plan now."
+            ? "That’s all four. Your agents can go and book it."
             : "Nothing gets booked until all four approve."}
       </p>
     </section>

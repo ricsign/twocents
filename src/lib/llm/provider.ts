@@ -35,8 +35,9 @@ export type TaskTag =
   | "voice-preview"    // one sample line showing how the agent will sound
   | "negotiation-turn" // one agent's public line in the town
   | "offer-check"      // is the trip an agent just proposed actually bookable?
-  | "final-plan"       // the agreed plan, once
-  | "agent-report";    // one agent's private report to its human
+  | "final-plan"       // the agreed plan
+  | "agent-report"     // one agent's private report to its human
+  | "itinerary";       // the booked-shaped day-by-day, once all four approve
 
 /**
  * Model ids per tier. Overridable by env so a judge's machine, or a last-minute
@@ -91,6 +92,9 @@ export const TIER_FOR_TASK: Record<TaskTag, ModelTier> = {
   "offer-check": "fast",
   "final-plan": "smart",
   "agent-report": "smart",
+  // A document somebody prints and carries. Same reasoning as the plan: this is
+  // read word by word, so it gets the model that writes well.
+  itinerary: "smart",
 };
 
 /* -------------------------------------------------------------------------- */
@@ -131,6 +135,32 @@ export interface CompletionRequest {
    * what keeps a run with no network on the same rails as one with it.
    */
   webSearch?: { maxUses: number };
+  /**
+   * Wall-clock ceiling for this one call, overriding `llmTimeoutMs()`.
+   *
+   * The shared default is sized for the calls the demo makes by the dozen —
+   * a negotiation turn is two sentences and has to land inside a beat of
+   * screen time. A call that searches the web eight times and writes a whole
+   * document is a different animal: it routinely runs past that default, and
+   * under it the itinerary never once came back from the model. Set it only
+   * where the work genuinely takes longer, and never on anything the town
+   * screen waits on.
+   */
+  timeoutMs?: number;
+}
+
+/**
+ * One page the model actually opened during a searching call.
+ *
+ * Reported by the API alongside the answer, so these are pages that were
+ * fetched, not URLs a model wrote down — which is the whole reason they are
+ * safe to print as links. `host` is carried rather than derived at render time
+ * because it is what a person reads before deciding whether to click.
+ */
+export interface SearchSource {
+  title: string;
+  url: string;
+  host: string;
 }
 
 /**
@@ -142,6 +172,13 @@ export interface CompletionResult<T> {
   value: T;
   raw: string;
   usage: Usage;
+  /**
+   * What the call searched, when it searched. Empty for every call that did
+   * not, and for the offline provider, which never reaches the network — so an
+   * empty list means "nothing was looked up", and the UI can say so rather
+   * than implying a check that never happened.
+   */
+  sources: SearchSource[];
 }
 
 /** A model backend. Implemented live, canned, and wrapped. */

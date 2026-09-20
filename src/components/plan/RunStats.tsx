@@ -29,6 +29,7 @@ import { PRICING, estimateCost } from "@/lib/llm/provider";
 import type { Usage } from "@/lib/types";
 
 /** What a three-week planning thread costs, which is the point of comparison. */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- used by the temporarily hidden AGREED IN cell
 const GROUP_CHAT_BASELINE = "three weeks in the group chat";
 
 /* -------------------------------------------------------------------------- */
@@ -41,6 +42,7 @@ const GROUP_CHAT_BASELINE = "three weeks in the group chat";
  * disagree by a second is the sort of thing a judge notices and nobody can
  * explain from the stage.
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- used by the temporarily hidden AGREED IN cell
 function formatDuration(ms: number): string {
   const total = Math.max(0, Math.round(ms / 1000));
   const minutes = Math.floor(total / 60);
@@ -49,6 +51,7 @@ function formatDuration(ms: number): string {
 }
 
 /** `12.4K`. Exact under a thousand, because 840 tokens is a readable number. */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- used by the temporarily hidden MODEL CALLS cell
 function formatTokens(n: number): string {
   if (n < 1000) return String(n);
   return `${(n / 1000).toFixed(1)}K`;
@@ -146,6 +149,7 @@ function ResetRun({ sessionId }: { sessionId?: string }) {
 
 export function RunStats({
   usage,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- read by the temporarily hidden AGREED IN cell
   agreedInMs,
   sessionId,
 }: {
@@ -171,6 +175,12 @@ export function RunStats({
       aria-label="What this run cost"
       className="flex flex-col gap-4 border-[3px] border-ink bg-card px-5 py-4 min-[1100px]:flex-row min-[1100px]:items-start min-[1100px]:gap-8"
     >
+      {/* TEMPORARILY HIDDEN: the AGREED IN and MODEL CALLS cells. The plan
+          headline already prints the agreed time, and the call count is not
+          what the demo is selling. Restore by uncommenting — `formatDuration`,
+          `formatTokens`, `GROUP_CHAT_BASELINE` and the `agreedInMs` prop are
+          all still here for it.
+
       <Cell
         label="AGREED IN"
         value={formatDuration(agreedInMs)}
@@ -186,6 +196,7 @@ export function RunStats({
             : `${formatTokens(usage.inputTokens)} in / ${formatTokens(usage.outputTokens)} out`
         }
       />
+      */}
 
       <Cell
         label="COST"

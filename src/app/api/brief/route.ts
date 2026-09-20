@@ -9,6 +9,14 @@
  * Nothing here is public. This is the one place a real budget is allowed to
  * exist in plain text; `lib/negotiation/redaction.ts` is what keeps it out of
  * the town.
+ *
+ * Every turn is saved to the session before it is answered, which is what makes
+ * the briefing screen a real step rather than a demo of one: the conversation,
+ * the fields it filled in and the secret it locked all survive a reload, the
+ * walk to step 2 and back, and a restarted server. It is also what the town
+ * argues with — the negotiation reads `session.participants[id].brief`, so a
+ * turn that is not saved is a thing the person said that their agent never
+ * hears.
  */
 
 import { NextResponse } from "next/server";
@@ -23,7 +31,7 @@ import {
   type Brief,
 } from "@/lib/types";
 import { displayNameFor } from "@/lib/characters";
-import { getOrCreateDefault } from "@/lib/session";
+import { getOrCreateDefault, updateSession } from "@/lib/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -79,7 +87,7 @@ function keptPrivateLabel(lastHuman: string, brief: Brief): string | null {
 function replySystem(name: string): string {
   return [
     `You are ${name}'s agent in twocents.ai. You are talking to ${name} alone, in private.`,
-    "Your job is to learn what they actually want — destination, dates, the real spending ceiling, hard nos — so you can argue their side later with three other agents.",
+    "Your job is to learn what they actually want — destination, dates, the real spending ceiling, hard nos — so you can work the plan out later with three other agents.",
     "Ask for exactly one missing thing at a time. Two sentences maximum. Plain, warm, specific. No marketing, no em dashes, no lists.",
     "When they name a number or tell you to keep something quiet, say plainly that it stays with you and name what the others will hear instead. Never promise anything you cannot enforce.",
   ].join("\n");
@@ -114,9 +122,10 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   const { participantId, messages, brief: known } = parsed.data;
+  const session = getOrCreateDefault();
   // The same resolver the room uses, so an agent briefed in a judges' round
   // calls its human by the name the judge typed.
-  const name = displayNameFor(displayNamesOf(getOrCreateDefault()), participantId);
+  const name = displayNameFor(displayNamesOf(session), participantId);
   const lastHuman = [...messages].reverse().find((m) => m.role === "human")?.text ?? "";
   const turnIndex = messages.filter((m) => m.role === "human").length - 1;
 
@@ -165,19 +174,35 @@ export async function POST(request: Request): Promise<NextResponse> {
     briefSchema,
   );
 
+  const answer = reply.value.trim();
+
   // The transcript is ours, not the model's: it is the literal chat, and a
-  // model that paraphrases it would quietly rewrite what the human said.
+  // model that paraphrases it would quietly rewrite what the human said. The
+  // agent's own reply is appended here rather than only in the browser, so the
+  // saved conversation is the whole conversation and a reload does not lose
+  // the last thing the agent said.
   const brief: Brief = {
     ...extracted.value,
     participantId,
-    rawTranscript: messages,
+    rawTranscript: [...messages, { role: "agent", text: answer }],
   };
 
-  // TODO(session): persist via `src/lib/session.ts` once it lands — another
-  // agent is writing it in parallel, so this route is deliberately stateless.
+  // Saved before answering. A write that fails leaves the browser holding the
+  // only copy of this turn, which is exactly the bug this replaced, so it is
+  // logged rather than swallowed — but it still must not fail the request:
+  // the person is mid-sentence with their agent.
+  const saved = updateSession(session.id, {
+    participants: {
+      ...session.participants,
+      [participantId]: { ...session.participants[participantId], brief },
+    },
+  });
+  if (!saved) {
+    console.warn(`[brief] could not save ${participantId}'s turn to ${session.id}`);
+  }
 
   const payload: BriefTurnResponse = {
-    reply: reply.value.trim(),
+    reply: answer,
     brief,
     keptPrivate: keptPrivateLabel(lastHuman, brief),
   };

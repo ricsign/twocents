@@ -348,7 +348,7 @@ export function JudgesScreen() {
           {failed
             ? "That didn’t take. Press START again."
             : ready
-              ? "Four agents walk to the table and argue it out. About forty seconds."
+              ? "Four agents sit down and work it out together. About forty seconds."
               : "Every seat needs a name and one line about what they want."}
         </p>
       </div>

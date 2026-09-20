@@ -21,13 +21,20 @@
  */
 
 import type { CompletionRequest } from "@/lib/llm/provider";
-import type { Offer, OfferFeasibility } from "@/lib/types";
+import type { NegotiationSourced, Offer, OfferFeasibility } from "@/lib/types";
 
 /** How many searches one offer is worth. Two: a flight price and a bed price. */
 const MAX_SEARCHES_PER_OFFER = 2;
 
-/** Room for a verdict and a short note; this is not where prose belongs. */
-const CHECK_MAX_TOKENS = 400;
+/**
+ * The verdict is four short fields, but this ceiling is not sized for the
+ * verdict. A searching call spends output tokens deciding what to search for
+ * and reading its way to an answer before it emits anything, and a budget that
+ * only fits the answer truncates the emit halfway through — which arrives as a
+ * schema failure with half the fields missing, not as an obvious "ran out of
+ * room". This is sized for the whole round trip.
+ */
+const CHECK_MAX_TOKENS = 1500;
 
 /**
  * Whether the check runs at all. On by default; set `TWOCENTS_WEB_SEARCH=0` to
@@ -52,6 +59,10 @@ export const UNCHECKED: OfferFeasibility = {
   realisticPerPerson: null,
   note: "Not checked against live prices.",
   sources: [],
+  // No pages were opened, so there is nothing to link to. The transcript keys
+  // its "a quick web search shows" line off this list being non-empty, which
+  // is what stops an unchecked offer from claiming a search.
+  links: [],
 };
 
 const SYSTEM = [
@@ -64,6 +75,27 @@ const SYSTEM = [
   "- `note` is ONE short sentence, written to be read aloud at the table: what it really costs, or what makes it work. No sources in the sentence, no hedging, no preamble.",
   "- `sources` is the bare host names you used, like \"kayak.com\". Three at most.",
 ].join("\n");
+
+/**
+ * The sentence the transcript prints under a checked offer.
+ *
+ * Built here rather than asked of the model, so the claim and the links can
+ * never come apart: this string is only ever constructed next to the pages
+ * that back it, and it returns nothing when there are none. The phrasing is
+ * fixed for the same reason — "a quick web search shows" is a claim about what
+ * the product did, so the product says it, not a model improvising.
+ */
+export function sourcedFrom(check: OfferFeasibility | undefined): NegotiationSourced | null {
+  if (!check || check.links.length === 0) return null;
+  const note = check.note.trim();
+  if (!note) return null;
+  const sentence = `${note.charAt(0).toLowerCase()}${note.slice(1)}`;
+  return {
+    note: `A quick web search shows ${sentence}`,
+    // Three is what fits on a transcript row; the offer card keeps the rest.
+    links: check.links.slice(0, 3),
+  };
+}
 
 /** The request for one offer's check, ready to hand to a provider. */
 export function buildFeasibilityRequest(offer: Offer): CompletionRequest {

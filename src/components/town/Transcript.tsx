@@ -12,7 +12,7 @@
 
 import { useEffect, useRef } from "react";
 import { agentName } from "@/lib/characters";
-import type { NegotiationTurn, Offer, TurnKind } from "@/lib/types";
+import type { NegotiationSourced, NegotiationTurn, Offer, TurnKind } from "@/lib/types";
 import type { DisplayNames, ParticipantId } from "@/lib/characters";
 import { Avatar } from "@/components/ui/Sprite";
 
@@ -25,6 +25,35 @@ function terms(offer: Offer): string {
   ]
     .filter(Boolean)
     .join(" · ");
+}
+
+/**
+ * The search behind a line, with the pages it opened.
+ *
+ * Rendered wherever the line is, because a claim and its receipt belong on the
+ * same row: the sentence says a search happened and the hosts beside it are
+ * the pages that search returned, each one a link a person can open and check.
+ * The engine only ever builds this block next to real results, so a row
+ * without links is a row that never claims one.
+ */
+function Sourced({ sourced }: { sourced: NegotiationSourced }) {
+  return (
+    <p className="m-0 flex flex-wrap items-baseline gap-x-1.5 text-[12px] leading-snug font-semibold text-bark">
+      <span>{sourced.note}</span>
+      {sourced.links.map((link) => (
+        <a
+          key={link.url}
+          href={link.url}
+          target="_blank"
+          rel="noreferrer"
+          title={link.title}
+          className="text-sky underline decoration-dotted underline-offset-2"
+        >
+          {link.host}
+        </a>
+      ))}
+    </p>
+  );
 }
 
 /** Pushing back is the only turn that gets a colour; the rest stay muted. */
@@ -55,7 +84,7 @@ export function Transcript({
       <div
         role="log"
         aria-live="polite"
-        aria-label="Negotiation transcript"
+        aria-label="Planning transcript"
         className="pixel-scroll flex min-h-0 flex-1 flex-col overflow-y-auto"
       >
         <div className="mt-auto flex flex-col gap-[22px]">
@@ -121,19 +150,23 @@ function TurnRow({
             >
               {turn.offer.feasibility.bookable ? "checked" : "not bookable"} ·{" "}
               {turn.offer.feasibility.note}
-              {turn.offer.feasibility.sources.length > 0
-                ? ` · ${turn.offer.feasibility.sources.join(", ")}`
-                : ""}
             </div>
           ) : null}
+
+          {/* The pages behind that verdict, named and clickable. Only ever
+              present when the check actually opened them. */}
+          {turn.sourced ? <Sourced sourced={turn.sourced} /> : null}
           {/* The card is the readable form; the line itself is what was said,
               and the accessible record has to carry it. */}
           <span className="sr-only">{turn.text}</span>
         </div>
       ) : (
-        <p className="m-0 ml-[38px] text-[16px] leading-[1.45] font-semibold">
-          “{turn.text}”
-        </p>
+        <div className="ml-[38px] flex flex-col gap-1.5">
+          <p className="m-0 text-[16px] leading-[1.45] font-semibold">
+            “{turn.text}”
+          </p>
+          {turn.sourced ? <Sourced sourced={turn.sourced} /> : null}
+        </div>
       )}
     </div>
   );

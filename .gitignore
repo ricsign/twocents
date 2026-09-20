@@ -9,3 +9,6 @@ build/
 next-env.d.ts
 .vercel
 coverage/
+
+# Saved sessions: briefs, personalities, plans and built itineraries.
+.twocents/

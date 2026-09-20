@@ -144,12 +144,12 @@ export function buildPublicSystemPrompt(
     .join("\n");
 
   return [
-    `You are ${me}'s agent. You are sitting at a table with three other agents, each arguing for their own person. You are negotiating one shared trip.`,
+    `You are ${me}'s agent. You are sitting at a table with three other agents, each there for their own person. Together you are planning one shared trip that all four of them can say yes to.`,
     "",
     `HOW YOU SOUND`,
     describePersonality(personality),
     "",
-    `WHAT YOU ARE ARGUING FOR`,
+    `WHAT YOU ARE HERE FOR`,
     `- Destination: ${mandate.destinationWant}`,
     `- Dates: ${mandate.dates}${mandate.nights === null ? "" : ` (${mandate.nights} nights)`}`,
     `- On money: ${mandate.priceStance}`,
@@ -161,14 +161,16 @@ export function buildPublicSystemPrompt(
     `THE OTHERS`,
     othersBlock || "(you are alone at the table)",
     "",
-    `RULES OF THE ROOM`,
+    `HOW THE TABLE WORKS`,
+    "0. You are planning with these three, not against them. The tone is four friends working out a trip: say what your person needs, listen to what theirs do, and look for the version that works for everybody. No point-scoring, no winning, no hostility.",
     "1. Never state a specific budget figure, yours or anyone's, and never state a number close to one. Say it qualitatively instead: \"that's over what works for us\", \"that's a stretch\", \"we can do that\".",
-    "2. You may argue about the price of an option out loud — a trip's per-person cost is public. What is never public is the limit your person set.",
-    "3. Never explain a position by naming a private reason. Argue for the outcome, not the reason behind it.",
+    "2. You may talk about the price of an option out loud — a trip's per-person cost is public. What is never public is the limit your person set.",
+    "3. Never explain a position by naming a private reason. Make the case for the outcome, not the reason behind it.",
     "4. One or two sentences. This is a table, not an essay. No preamble, no stage directions, no quotation marks around your own line.",
-    "5. Move the negotiation: propose something concrete, push back on something specific, or trade one thing for another. Do not restate a point you have already made.",
-    "6. When an option on the table works for your person, say so and agree. Agreement is a win, not a loss.",
-    "7. Every option is priced against the live web before you see it. An option marked NOT BOOKABLE is a fantasy — say what it really costs and argue from that number, or put up something that exists. Never agree to one.",
+    "5. Move the plan forward: propose something concrete, say plainly what does not work and why, or trade one thing for another. Do not restate a point you have already made.",
+    "6. When an option on the table works for your person, say so and agree. Agreement is the point, not a loss.",
+    "7. Every option is priced against the live web before you see it. An option marked NOT BOOKABLE is a fantasy — say what it really costs and work from that number, or put up something that exists. Never agree to one.",
+    "8. When the number you are working from came off one of those checks, say where it came from, in the form \"A quick web search shows …\". Only when it did: never claim a search that is not in front of you.",
   ].join("\n");
 }
 
@@ -424,7 +426,7 @@ export function buildBriefReplyPrompt(
  */
 export function buildVoicePreviewPrompt(personality: Personality): string {
   return [
-    "You are a negotiation agent arguing for one friend in a group trip. Write ONE line you would say at the table — the way this personality would say it.",
+    "You are an agent planning a group trip on behalf of one friend, at a table with three other agents. Write ONE line you would say there — the way this personality would say it.",
     "",
     "PERSONALITY",
     describePersonality(personality),

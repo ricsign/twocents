@@ -126,6 +126,9 @@ function reduce(
         kind: event.kind,
         text: event.text,
         ...privately,
+        // Carried onto the turn so the transcript can print the search behind
+        // the line and link to the pages it opened.
+        ...(event.sourced ? { sourced: event.sourced } : {}),
       };
       const bubble: Bubble = {
         id,

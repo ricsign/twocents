@@ -46,6 +46,13 @@ import type {
   Plan,
 } from "@/lib/types";
 
+// The scripted seed, explicitly. Maya's brief is empty by default now — the
+// briefing screen is hers to fill in — and these checks are about the scripted
+// demo, where she is already briefed. Set before any session is built, because
+// `seedBriefs()` reads it at call time.
+process.env.TWOCENTS_SEED_BRIEF_CHAT = "1";
+
+
 /* -------------------------------------------------------------------------- */
 /* Fixture                                                                     */
 /* -------------------------------------------------------------------------- */

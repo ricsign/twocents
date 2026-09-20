@@ -117,7 +117,7 @@ export function PersonalityScreen({
 
       <div className="flex min-h-0 flex-col gap-8">
         <h1 className="head m-0 text-[30px] leading-none font-bold min-[1100px]:text-[40px]">
-          How hard should it fight for you?
+          How firmly should it hold your side?
         </h1>
 
         <div className="flex flex-col gap-6">

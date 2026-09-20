@@ -44,8 +44,8 @@ export default function TitleScreen() {
       </Link>
 
       <p className="max-w-[540px] text-center text-[15px] font-semibold text-bark">
-        You brief your agent in private. It argues your side in the open, and
-        never repeats your number.
+        You brief your agent in private. It works out the plan with the others
+        in the open, and never repeats your number.
       </p>
     </main>
   );
