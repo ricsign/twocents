@@ -22,28 +22,28 @@ export interface Character {
 export const CHARACTERS: Record<ParticipantId, Character> = {
   maya: {
     id: "maya",
-    name: "Maya",
+    name: "Will",
     color: "#E2593F",
     avatar: "/sprites/maya.png",
     sheet: "/sprites/maya-sheet.png",
   },
   jordan: {
     id: "jordan",
-    name: "Jordan",
+    name: "Angela",
     color: "#3B82C4",
     avatar: "/sprites/jordan.png",
     sheet: "/sprites/jordan-sheet.png",
   },
   sam: {
     id: "sam",
-    name: "Sam",
+    name: "Richard",
     color: "#5C9E4A",
     avatar: "/sprites/sam.png",
     sheet: "/sprites/sam-sheet.png",
   },
   priya: {
     id: "priya",
-    name: "Priya",
+    name: "Tsai",
     color: "#8B5CC7",
     avatar: "/sprites/priya.png",
     sheet: "/sprites/priya-sheet.png",
@@ -77,7 +77,7 @@ export type DisplayNames = Readonly<Partial<Record<ParticipantId, string>>>;
  *
  * Every visible label - name tags, transcript rows, fairness bars, approval
  * rosters, the briefing header - and every generated line goes through here.
- * Sprites, colours and ids are untouched by it: a renamed Maya is still the
+ * Sprites, colours and ids are untouched by it: a renamed Will is still the
  * coral seat with the coral sprite, because only the name is overridable.
  *
  * Total: a missing or blank override is not an override, so there is no state

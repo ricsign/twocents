@@ -177,7 +177,7 @@ check("a plan over one person's ceiling flips nobodyOverruled to false", () => {
   assert.equal(sam.wantsKept, 2);
   assert.equal(sam.gaveUp, "gave up staying under budget");
   assert.equal(report.nobodyOverruled, false);
-  assert.equal(fairnessSummaryLine(report), "Sam gave up the most");
+  assert.equal(fairnessSummaryLine(report), "Richard gave up the most");
 });
 
 check("gaveUp never names the figure it is about", () => {
@@ -327,7 +327,7 @@ check("the 60% threshold is what decides nobodyOverruled", () => {
   );
   assert.equal(rowFor(oneOfFive, "maya").wantsKept, 1);
   assert.equal(oneOfFive.nobodyOverruled, false);
-  assert.equal(fairnessSummaryLine(oneOfFive), "Maya gave up the most");
+  assert.equal(fairnessSummaryLine(oneOfFive), "Will gave up the most");
 });
 
 /* -------------------------------------------------------------------------- */
