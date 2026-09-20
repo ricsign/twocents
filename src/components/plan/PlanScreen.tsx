@@ -272,17 +272,28 @@ export function PlanScreen({
   }, [bootstrap, initialView]);
 
   /**
-   * Other people's taps, and other people's plan.
+   * The other three taps, once there is a plan to approve.
    *
-   * Two things arrive from somewhere other than this browser once a room has
-   * four humans in it: the plan, when the host's run lands, and each of the
-   * other three approvals. Neither has an event to ride in on, so this polls
-   * until the room is settled and then stops — an approval is a one-way door
-   * and there is nothing to watch for afterwards.
+   * Nothing carries an approval to this screen: the other three are on their
+   * own phones, and the session is the only thing all four write to. So it is
+   * read on a timer until the room has settled, and then not read again — an
+   * approval is a one-way door.
+   *
+   * Keyed on the approvals rather than on the view, which matters more than it
+   * looks. `loadView` builds a fresh object every time, so depending on `view`
+   * would tear this effect down and rebuild it on every single poll, whether
+   * or not anything had changed. The key only moves when somebody actually
+   * taps, so the timer is created once and lives until the room is done.
+   *
+   * Empty until a plan exists, which is what keeps this from running alongside
+   * the bootstrap's own poll.
    */
+  const approvals = view ? Object.values(view.approvals) : [];
+  const approvalsKey = approvals.map((yes) => (yes ? "1" : "0")).join("");
+  const everyoneIn = approvalsKey.length > 0 && !approvalsKey.includes("0");
+
   useEffect(() => {
-    const everyoneIn = view !== null && Object.values(view.approvals).every(Boolean);
-    if (everyoneIn) return;
+    if (approvalsKey.length === 0 || everyoneIn) return;
 
     let stopped = false;
     let timer: number | null = null;
@@ -290,11 +301,10 @@ export function PlanScreen({
     async function poll(): Promise<void> {
       try {
         const next = await loadView(sessionId);
-        // A poll may only ever add to what is on screen. `loadView` returns
+        // A poll may only ever add to what is on screen. `loadView` answers
         // null while the agents are still out, and letting that overwrite a
-        // plan already being read would blank the screen under somebody.
-        if (next && !stopped) setView(next);
-        if (next && !stopped) setStatus("ready");
+        // plan somebody is reading would blank the screen under them.
+        if (next && !stopped) publish(next);
       } catch {
         // A dropped poll costs one beat; the next read is of the whole view.
       } finally {
@@ -307,7 +317,7 @@ export function PlanScreen({
       stopped = true;
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [sessionId, view]);
+  }, [approvalsKey, everyoneIn, publish, sessionId]);
 
   if (!view) {
     return (

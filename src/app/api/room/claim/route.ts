@@ -23,7 +23,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { displayNameFor } from "@/lib/characters";
 import {
-  SEAT_COOKIE,
+  currentRoom,
   normalizeRoomCode,
   resolveSession,
   setRoomCookies,
@@ -68,6 +68,9 @@ export async function POST(request: Request): Promise<Response> {
   const code = normalizeRoomCode(parsed.data.code);
   if (!code) return Response.json({ error: "that is not a room code" }, { status: 400 });
 
+  // Read before the session, so the check-then-set below has nothing to await.
+  const held = await currentRoom();
+
   const session = resolveSession(code);
   if (!session) {
     return Response.json({ error: "that room is gone", code }, { status: 404 });
@@ -81,7 +84,12 @@ export async function POST(request: Request): Promise<Response> {
   // Everything from here to the write happens without an await. One process,
   // one thread, no interleaving point — which is the whole reason a
   // check-then-set is safe here and why nothing may be awaited in this window.
-  const mine = request.headers.get("cookie")?.includes(`${SEAT_COOKIE}=${participantId}`);
+  //
+  // "Already mine" means this browser holds *this* room's cookie for *this*
+  // seat. Both halves matter: checking the seat alone would let somebody who
+  // is Ana in one room walk into another room's Ana without being told it was
+  // taken, because the cookie says `maya` in both.
+  const mine = held.joined && held.sessionId === session.id && held.seat === participantId;
   const taken = seat.claimedAt !== null;
 
   if (taken && !force && !mine) {

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Runs the four hand-rolled *.check.ts suites.
+# Runs the hand-rolled *.check.ts suites.
 #
 # There is no test runner in this project's dependencies and adding one is not
 # worth a hackathon weekend, so the suites are plain scripts that assert and
@@ -19,6 +19,7 @@ ln -sfn .. "$OUT/node_modules/@"
 failed=0
 for suite in \
   lib/__tests__/session-view.check.js \
+  lib/room/__tests__/room.check.js \
   lib/llm/__tests__/offline-scenario.check.js \
   lib/negotiation/__tests__/fairness.check.js \
   lib/negotiation/__tests__/redaction.check.js

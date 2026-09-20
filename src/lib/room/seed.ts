@@ -137,12 +137,21 @@ const SPLURGY_BY_RANK = [12, 38, 62, 88] as const;
 /** The mid-point, for a seat with nothing at all to go on. */
 const SPLURGY_NO_CEILING = 50;
 
-/** How a stated tone maps onto the same four points, when no budgets exist. */
-const SPLURGY_BY_TONE: Record<MoneyTone, number> = {
+/**
+ * How a *stated* tone maps onto the same four points, when no budgets exist.
+ *
+ * `unstated` is deliberately absent rather than mapped to the midpoint. It is
+ * the enum's way of saying "this person never mentioned money", which is not a
+ * position on the slider — it is the absence of one, and pinning it to 50
+ * would silently outrank the two better guesses underneath it. A real reading
+ * of a real chat comes back mostly `unstated`, so this is the common case
+ * rather than the edge: three of four seats landing on the same number is the
+ * flat room this whole function exists to prevent.
+ */
+const SPLURGY_BY_TONE: Record<Exclude<MoneyTone, "unstated">, number> = {
   cheap: SPLURGY_BY_RANK[0],
   mixed: SPLURGY_NO_CEILING,
   splurgy: SPLURGY_BY_RANK[3],
-  unstated: SPLURGY_NO_CEILING,
 };
 
 /**
@@ -158,9 +167,10 @@ const SPLURGY_BY_TONE: Record<MoneyTone, number> = {
  * Four sources, in descending order of how much they actually know:
  *
  * 1. **Budgets, ranked against each other.** What the judges' round has.
- * 2. **Money tone.** What a photo can honestly read. Without this step every
- *    photo-seeded seat would fall to the midpoint together — all four agents
- *    on the same slider, which is the failure this function exists to prevent.
+ * 2. **Money tone**, when somebody actually talked about money. Without this
+ *    step every photo-seeded seat would fall to the midpoint together — all
+ *    four agents on the same slider, which is the failure this function exists
+ *    to prevent. `unstated` is not a tone and falls through to the next source.
  * 3. **A slider that came with the seat**, from a personality guess.
  * 4. **The seeded spread**, which is already tuned to argue with itself.
  *
@@ -178,7 +188,7 @@ export function splurgyFor(seats: readonly SeatBrief[]): Map<ParticipantId, numb
   for (const seat of seats) {
     out.set(
       seat.participantId,
-      seat.moneyTone
+      seat.moneyTone && seat.moneyTone !== "unstated"
         ? SPLURGY_BY_TONE[seat.moneyTone]
         : (seat.personality?.splurgy ??
           SEED_PERSONALITIES[seat.participantId]?.splurgy ??
