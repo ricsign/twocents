@@ -28,7 +28,9 @@ Four screens, in order.
    alone, and four approvals.
 
 There is a fifth screen, `/judges`, which is the whole thing in twenty seconds:
-name four people, give each a one-line want and a private budget, press START.
+name four people, give each a one-line want and a private budget. It makes a
+room, the same as a screenshot does — a judge with no group chat to hand still
+gets a join link they can pass around.
 
 ### Or start from the group chat
 

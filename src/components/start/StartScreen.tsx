@@ -532,10 +532,10 @@ function Escapes() {
   return (
     <div className="flex flex-wrap gap-3">
       <PixelLink href="/brief" variant="ghost" className="h-11 px-4 text-[9px]">
-        SKIP — BRIEF MY OWN AGENT
+        JUST ME, NO ROOM
       </PixelLink>
       <PixelLink href="/judges" variant="ghost" className="h-11 px-4 text-[9px]">
-        TYPE IT INSTEAD
+        TYPE THEM IN INSTEAD
       </PixelLink>
     </div>
   );

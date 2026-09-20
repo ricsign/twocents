@@ -1,7 +1,12 @@
 "use client";
 
 /**
- * The judges' round: four agents briefed in about twenty seconds.
+ * Describing four people by typing, rather than by photographing their chat.
+ *
+ * The other half of the same door. `/start` reads four people off a group chat
+ * screenshot; this types them in about twenty seconds, for a judge who has no
+ * screenshot and twenty seconds to spare. Both land on the same join screen,
+ * because a room is a room however its four seats got described.
  *
  * This screen exists because of one line in the demo script — at 2:20 a judge
  * briefs four agents for their own dinner and watches them argue. Everything
@@ -272,15 +277,17 @@ export function JudgesScreen() {
         }),
       });
       if (!res.ok) throw new Error(`judges responded ${res.status}`);
-      // The route seeded the session the town already reads, so there is
-      // nothing to hand along but the navigation itself — except the refresh.
-      // `/town` renders the session on the server, and the router's cached
-      // payload for it still describes the room the last judge left behind:
-      // without this, a judge who has already been to the town once watches
-      // the previous round's transcript repaint under their own names.
-      // `RunStats` refreshes before its push for the same reason.
+      const data = (await res.json()) as { joinPath: string };
+
+      // Onward to the join screen, not to the town. Four people have just been
+      // described; none of them has been claimed. Whoever typed this picks
+      // which one they are, and the other three open the same link on their
+      // own phones — the point of typing them in the first place.
+      //
+      // The refresh drops the router's cached payload for that page, which
+      // otherwise still describes whatever room this browser last looked at.
       router.refresh();
-      router.push("/town");
+      router.push(data.joinPath);
     } catch {
       setStarting(false);
       setFailed(true);
@@ -344,7 +351,7 @@ export function JudgesScreen() {
           disabled={!ready || starting}
           className="disp px-press px-shadow h-16 shrink-0 cursor-pointer border-4 border-ink bg-coral px-12 text-[12px] text-white disabled:cursor-default disabled:opacity-45 min-[1100px]:h-[68px]"
         >
-          {starting ? "SEATING THEM…" : "START"}
+          {starting ? "MAKING THE ROOM…" : "MAKE THE ROOM →"}
         </button>
 
         <p
@@ -352,7 +359,7 @@ export function JudgesScreen() {
           className={`m-0 text-[14px] font-semibold ${failed ? "text-rust" : "text-bark"}`}
         >
           {failed
-            ? "That didn’t take. Press START again."
+            ? "That didn’t take. Try once more."
             : ready
               ? "Four agents sit down and work it out together. About forty seconds."
               : "Every seat needs a name and one line about what they want."}
