@@ -220,6 +220,18 @@ function streamNegotiation(params: RunParams, signal: AbortSignal): Response {
   const encoder = new TextEncoder();
   const turns: NegotiationTurn[] = [];
 
+  // Released on abort as well as on completion.
+  //
+  // The `finally` at the end of `start` covers a run that finishes, throws or
+  // notices `signal.aborted` between frames. It does not cover a client that
+  // navigates away while the generator is suspended inside a model call: the
+  // stream is dropped, `start` never resumes, and the lease sat there for its
+  // full 180 seconds. The plan screen then POSTed, got 409, and polled a
+  // session nobody was writing — the town's run was gone and its lease was
+  // all that survived it. Releasing here as well makes the lease a property
+  // of the request rather than of the code path that ends it.
+  signal.addEventListener("abort", () => releaseRun(session.id, token), { once: true });
+
   const body = new ReadableStream<Uint8Array>({
     async start(controller) {
       const send = (payload: string): void => {
@@ -322,7 +334,8 @@ function streamNegotiation(params: RunParams, signal: AbortSignal): Response {
         console.warn("[negotiate] stream ended early:", error);
       } finally {
         // Before the sentinel, not after: the lease guards the session writes
-        // above, and by here the last of them has happened.
+        // above, and by here the last of them has happened. Releasing twice is
+        // releasing once — `releaseRun` only drops an entry that is still ours.
         releaseRun(session.id, token);
       }
 
