@@ -38,6 +38,7 @@
  */
 
 import { z } from "zod";
+import { hasBriefed } from "@/lib/flow";
 import {
   PARTICIPANT_IDS,
   YOU,
@@ -52,6 +53,7 @@ import {
   mandateFromBrief,
   negotiationTurnSchema,
   participantIdSchema,
+  participantStateSchema,
   personalitySchema,
   planSchema,
   publicMandateSchema,
@@ -59,6 +61,7 @@ import {
   displayNamesOf,
   type DemoSession,
   type NegotiationEvent,
+  type ParticipantState,
 } from "@/lib/types";
 
 /** The person a view is built for when a caller does not say. The demo user. */
@@ -108,6 +111,23 @@ export const otherParticipantViewSchema = z.object({
   bio: z.string(),
   /** Their tap on the plan screen. A public act by construction. */
   approved: z.boolean(),
+  /**
+   * Whether a human has taken this seat.
+   *
+   * Public by observation, like `sliders` and `bio` above it: who is in the
+   * room is something everyone in the room can see, and the lobby has to draw
+   * it. Nothing about the person leaks with it — this is a fact about the
+   * chair, not about the brief sitting in it.
+   */
+  claimed: z.boolean(),
+  /**
+   * Whether they have told their agent anything yet.
+   *
+   * Also observation rather than disclosure: it says a conversation happened,
+   * never a word of what was in it. The lobby needs it to know when the room
+   * is ready, and the briefing roster has always drawn the same tick.
+   */
+  briefed: z.boolean(),
 });
 
 /** One of the other three, narrowed. */
@@ -121,6 +141,12 @@ export const selfParticipantViewSchema = z.object({
   brief: briefSchema,
   personality: personalitySchema,
   approved: z.boolean(),
+  claimed: z.boolean(),
+  briefed: z.boolean(),
+  /** Whether you are the one who may start the run and clear the room. */
+  isHost: z.boolean(),
+  /** What the chat was read as for this seat, until you correct it. */
+  draft: participantStateSchema.shape.draft,
 });
 
 /** You, whole. */
@@ -152,6 +178,15 @@ export const sessionViewSchema = z.object({
   /** Yours alone, or null before the run finishes. The other three never cross. */
   report: agentReportSchema.nullable(),
   usage: usageSchema,
+  /** Who may start and reset. Null in a solo run, where nobody claimed a seat. */
+  hostSeat: participantIdSchema.nullable(),
+  /**
+   * When the negotiation first started, or null.
+   *
+   * The lobby polls for this and follows the host to the town when it lands.
+   * Public because "we have begun" is the least private fact in the session.
+   */
+  runStartedAt: z.number().nullable(),
 });
 
 /** The session, as one person may know it. */
@@ -168,6 +203,28 @@ export type SessionView = z.infer<typeof sessionViewSchema>;
  * total: it never throws, and a viewer with no participant state still gets a
  * well-formed view of the shared fields rather than a 500 mid-demo.
  */
+/**
+ * Has this person actually said anything, as opposed to having been read?
+ *
+ * Deliberately narrower than `hasBriefed` in `lib/flow.ts`, and the two are
+ * asking different questions. The flow guard asks "is there anything here for
+ * an agent to argue from", and a seat seeded from a group chat passes it —
+ * correctly, because there is: a want somebody typed in the chat, which is
+ * enough to let them through to the sliders and the town.
+ *
+ * The lobby is asking whether to wait for this person, and a guess we made on
+ * their behalf is not an answer from them. A room that counted drafts as
+ * briefed would show four ticks the moment it was created and offer to start
+ * before anybody had said a word to their own agent — including the one thing
+ * the whole product is for, the number nobody types in the chat.
+ *
+ * `draft` is cleared by `/api/brief` on the first turn, so this becomes true
+ * exactly when they speak.
+ */
+function hasSpoken(state: ParticipantState): boolean {
+  return state.draft === undefined && hasBriefed(state.brief);
+}
+
 export function sessionViewFor(
   session: DemoSession,
   viewerId: ParticipantId,
@@ -194,6 +251,8 @@ export function sessionViewFor(
       sliders,
       bio,
       approved: state.approved,
+      claimed: state.claimedAt !== null,
+      briefed: hasSpoken(state),
     });
   }
 
@@ -208,6 +267,13 @@ export function sessionViewFor(
       brief: mine?.brief ?? emptyBrief(viewerId),
       personality: mine?.personality ?? EMPTY_PERSONALITY,
       approved: mine?.approved ?? false,
+      claimed: mine?.claimedAt != null,
+      briefed: mine ? hasSpoken(mine) : false,
+      // Null host means solo, and in a solo run the one person present is the
+      // host of nothing — there is nobody to be host over. Both buttons the
+      // flag guards stay exactly as unguarded as they were.
+      isHost: session.hostSeat === viewerId,
+      ...(mine?.draft ? { draft: mine.draft } : {}),
     },
     others,
     turns: session.turns.map((turn) =>
@@ -217,6 +283,8 @@ export function sessionViewFor(
     fairness: session.fairness,
     report: session.reports?.[viewerId] ?? null,
     usage: session.usage,
+    hostSeat: session.hostSeat,
+    runStartedAt: session.runStartedAt,
   };
 }
 

@@ -64,13 +64,21 @@ function editParticipant(
   });
 }
 
-/** Stores what somebody told their agent, and drops the run it predates. */
+/**
+ * Stores what somebody told their agent, and drops the run it predates.
+ *
+ * `also` is for the fields that stop being true the moment a person speaks for
+ * themselves — today that is `draft`, the marker saying a seat was read off a
+ * group chat rather than briefed by its owner. It rides along here rather than
+ * in a second write so a turn of the briefing chat stays one atomic edit.
+ */
 export function applyBrief(
   session: DemoSession,
   participantId: ParticipantId,
   brief: Brief,
+  also?: Partial<ParticipantState>,
 ): DemoSession | undefined {
-  return editParticipant(session, participantId, { brief });
+  return editParticipant(session, participantId, { ...also, brief });
 }
 
 /** Stores how somebody's agent should argue, and drops the run it predates. */

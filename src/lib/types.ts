@@ -934,6 +934,40 @@ export const participantStateSchema = z.object({
    * judge typed, and `displayNameFor` is the only thing that reads it.
    */
   displayName: z.string().optional(),
+  /**
+   * `Date.now()` when a human took this seat, or null while nobody has.
+   *
+   * One field rather than a `claimed` boolean beside a timestamp, because two
+   * fields can disagree and one cannot: claimed *is* `claimedAt !== null`.
+   *
+   * An unclaimed seat is an NPC. That is the whole rule the room runs on — it
+   * decides who has to tap APPROVE (`approveUnattendedSeats`) and what the
+   * lobby draws — and it is why a solo run, where nobody ever claims anything,
+   * behaves exactly as it did before rooms existed.
+   *
+   * Defaulted rather than optional so a session written by an earlier build is
+   * restored through this schema as "nobody has joined" instead of being
+   * quarantined. `.default()` also makes the field required on the *output*
+   * type, so every hand-built `ParticipantState` is a compile error until it
+   * says what it means.
+   */
+  claimedAt: z.number().nullable().default(null),
+  /**
+   * Where this seat came from, when it was not the person themself.
+   *
+   * Set when a room is seeded from a group-chat photo and cleared the moment
+   * that person says a first word to their own agent. Its only job is to
+   * let a screen say "we guessed this from the chat — fix it", which stops a
+   * draft from being mistaken for something the person actually said.
+   */
+  draft: z
+    .object({
+      source: z.literal("photo"),
+      /** The handle this was read under: "@jules", "Mom". */
+      handle: z.string().max(40),
+      confidence: z.enum(["clear", "unsure"]),
+    })
+    .optional(),
 });
 
 /** Everything the app knows about one of the four friends. */
@@ -961,6 +995,25 @@ export const demoSessionSchema = z.object({
   usage: usageSchema,
   /** `Date.now()` at creation, used for the "agreed in" figure. */
   startedAt: z.number(),
+  /**
+   * The seat that may start the run and clear the room, or null in a solo run.
+   *
+   * Set to whoever claims first, which is the person who uploaded the chat and
+   * opened the link — so being the host costs no extra plumbing and no extra
+   * screen. It exists because two buttons in this app are destructive to other
+   * people: START spends everyone's model budget, and RESET replaces the whole
+   * session, briefs included. Null means nobody has joined and both stay
+   * exactly as unguarded as they were before rooms.
+   */
+  hostSeat: participantIdSchema.nullable().default(null),
+  /**
+   * `Date.now()` when the negotiation first started streaming, else null.
+   *
+   * The lobby's "we have begun" flag, and the reason four phones need no
+   * coordination primitive: the host navigates to the town, the route stamps
+   * this, and everyone else's next poll sees it and follows.
+   */
+  runStartedAt: z.number().nullable().default(null),
   /**
    * True only while this session is still the untouched seeded script.
    *

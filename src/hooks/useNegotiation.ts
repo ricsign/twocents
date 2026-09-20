@@ -29,7 +29,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { YOU, type ParticipantId } from "@/lib/characters";
+import type { ParticipantId } from "@/lib/characters";
 import { sessionViewSchema } from "@/lib/session-view";
 import {
   NEGOTIATION_ROUND_CAP,
@@ -83,6 +83,13 @@ export interface FinishedRun {
 }
 
 export interface NegotiationOptions {
+  /**
+   * Which room to argue in. Omitted means "wherever this browser is".
+   *
+   * Deliberately not defaulted to the demo session. `/api/negotiate` lets an
+   * explicit id outrank the cookie, so a default here would pin every room to
+   * `"demo"` and four people in a room would watch the scripted grad trip.
+   */
   sessionId?: string;
   /** The stored run to open on, or null to open empty and wait for `start`. */
   finished?: FinishedRun | null;
@@ -191,7 +198,7 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
  * arrives, and the caller shows the error state it always did.
  */
 async function adoptInFlightRun(
-  sessionId: string,
+  sessionId: string | undefined,
   signal: AbortSignal,
 ): Promise<FinishedRun | null> {
   for (let attempt = 0; attempt < ADOPT_POLL_TRIES; attempt += 1) {
@@ -200,7 +207,7 @@ async function adoptInFlightRun(
 
     try {
       const res = await fetch(
-        `/api/session?viewer=${YOU}&sessionId=${encodeURIComponent(sessionId)}`,
+        sessionId ? `/api/session?sessionId=${encodeURIComponent(sessionId)}` : "/api/session",
         { cache: "no-store", signal },
       );
       if (!res.ok) continue;
@@ -326,7 +333,7 @@ function reduce(
 /* -------------------------------------------------------------------------- */
 
 export function useNegotiation({
-  sessionId = "demo",
+  sessionId,
   finished = null,
 }: NegotiationOptions = {}): Negotiation {
   const router = useRouter();
@@ -390,12 +397,19 @@ export function useNegotiation({
         const response = await fetch("/api/negotiate", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          // `viewer` is what the route narrows each frame to: the town shows
-          // everyone's lines but only ever this person's private reasons, and
-          // the `done` frame arrives carrying one report instead of four. The
-          // plan screen reads that report back from `/api/session` anyway, so
-          // nothing here needs the other three.
-          body: JSON.stringify({ sessionId, viewer: YOU, speed: runSpeed }),
+          // Neither the room nor the viewer is named here any more. The route
+          // reads both off this browser's cookies, which is the only way four
+          // phones can open the same stream and each be narrowed to a
+          // different person — the frames a device gets carry its own private
+          // reasons and, at the end, its own report and nobody else's.
+          //
+          // `sessionId` still goes when the caller has one, because explicit
+          // beats cookie everywhere in this app and a page that knows its room
+          // should not depend on a jar it cannot see.
+          body: JSON.stringify({
+            ...(sessionId ? { sessionId } : {}),
+            speed: runSpeed,
+          }),
           signal: controller.signal,
         });
         if (response.status === ALREADY_RUNNING) {
@@ -546,7 +560,7 @@ export function useNegotiation({
         await fetch("/api/session", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ action: "reset", sessionId }),
+          body: JSON.stringify({ action: "reset", ...(sessionId ? { sessionId } : {}) }),
         });
       } catch {
         // A reset that could not reach the server still has to land somewhere

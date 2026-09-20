@@ -5,7 +5,7 @@ import { JudgesScreen } from "@/components/judges/JudgesScreen";
 export const metadata: Metadata = {
   title: "Judges’ round — twocents.ai",
   description:
-    "Brief four agents for your own dinner in twenty seconds, then watch them negotiate it.",
+    "Type four people in twenty seconds, get a room, and send the link to the other three.",
 };
 
 /**

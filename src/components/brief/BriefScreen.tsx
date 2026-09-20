@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { DisplayNames, ParticipantId } from "@/lib/characters";
 import type { Brief, BriefMessage } from "@/lib/types";
+import { withIdentity, type UrlIdentity } from "@/lib/room/links";
 import { PixelButton, PixelLink } from "@/components/ui/PixelButton";
 import { AgentKnowsPanel } from "./AgentKnowsPanel";
 import { BriefChat } from "./BriefChat";
@@ -52,6 +53,8 @@ function hasBeenBriefed(brief: Brief, messages: readonly ChatMessage[]): boolean
  */
 export function BriefScreen({
   participantId,
+  sessionId,
+  url,
   briefed,
   initialMessages,
   initialBrief,
@@ -59,6 +62,17 @@ export function BriefScreen({
   names,
 }: {
   participantId: ParticipantId;
+  /**
+   * The room this brief belongs to.
+   *
+   * Sent explicitly rather than left to the cookie because this screen is the
+   * one place a person's private ceiling is written, and a brief that landed
+   * in the wrong session would be both a lost answer and a leak into a room
+   * they are not in. The server still checks it against their seat.
+   */
+  sessionId: string;
+  /** Threaded back into this screen's links, so a tab keeps its own identity. */
+  url?: UrlIdentity;
   briefed: ParticipantId[];
   initialMessages: ChatMessage[];
   initialBrief: Brief;
@@ -102,6 +116,7 @@ export function BriefScreen({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           action: "clearBrief",
+          sessionId,
           viewer: participantId,
           participantId,
         }),
@@ -124,6 +139,7 @@ export function BriefScreen({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           participantId,
+          sessionId,
           messages: forWire(next),
           brief,
         }),
@@ -233,7 +249,7 @@ export function BriefScreen({
 
           {ready ? (
             <PixelLink
-              href="/personality"
+              href={withIdentity("/personality", url)}
               variant="primary"
               raised
               className="h-16 w-full"

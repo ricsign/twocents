@@ -44,9 +44,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { PixelLink } from "@/components/ui/PixelButton";
-import { YOU } from "@/lib/characters";
 import { sessionViewSchema } from "@/lib/session-view";
 import { planViewFrom, type PlanView } from "./view";
+import { withIdentity, type UrlIdentity } from "@/lib/room/links";
 import { AgentReportCard, AgentReportPending } from "./AgentReportCard";
 import { ApprovalRow } from "./ApprovalRow";
 import { FairnessMeter } from "./FairnessMeter";
@@ -56,6 +56,8 @@ import { RunStats } from "./RunStats";
 /** Fast-forward for the headless run. `/api/negotiate` clamps speed at 8x. */
 const HEADLESS_SPEED = 8;
 
+/** How often to look for the other three taps, and for a plan someone else ran. */
+const APPROVAL_POLL_MS = 3000;
 /** The route's answer when another screen already has this session's run. */
 const ALREADY_RUNNING = 409;
 
@@ -77,8 +79,9 @@ type Status = "loading" | "negotiating" | "ready" | "error";
  * The route narrows before it answers — the response carries your brief and
  * your report and nobody else's — so this is a reshaping, not a redaction.
  */
-async function loadView(): Promise<PlanView | null> {
-  const res = await fetch(`/api/session?viewer=${YOU}`, { cache: "no-store" });
+async function loadView(sessionId?: string): Promise<PlanView | null> {
+  const query = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : "";
+  const res = await fetch(`/api/session${query}`, { cache: "no-store" });
   if (!res.ok) return null;
   const parsed = sessionViewSchema.safeParse((await res.json()) as unknown);
   return parsed.success ? planViewFrom(parsed.data) : null;
@@ -115,10 +118,11 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 async function pollForPlan(
   signal: AbortSignal,
   publish: (view: PlanView) => void,
+  sessionId?: string,
 ): Promise<boolean> {
   let seen = false;
   for (let attempt = 0; attempt < POLL_TRIES; attempt += 1) {
-    const view = await loadView();
+    const view = await loadView(sessionId);
     if (signal.aborted) return seen;
     if (view) {
       publish(view);
@@ -141,11 +145,11 @@ async function pollForPlan(
  * Returns whether this call is the one doing the work, because a refusal is
  * only good news while the run that refused us is alive.
  */
-async function runHeadless(signal: AbortSignal): Promise<boolean> {
+async function runHeadless(signal: AbortSignal, sessionId?: string): Promise<boolean> {
   const res = await fetch("/api/negotiate", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ speed: HEADLESS_SPEED }),
+    body: JSON.stringify({ ...(sessionId ? { sessionId } : {}), speed: HEADLESS_SPEED }),
     signal,
   });
   if (res.status === ALREADY_RUNNING) return false;
@@ -164,8 +168,25 @@ async function runHeadless(signal: AbortSignal): Promise<boolean> {
 
 export function PlanScreen({
   initialView = null,
+  sessionId,
+  url,
+  canRun = true,
 }: {
   initialView?: PlanView | null;
+  sessionId?: string;
+  /** Threaded back into this screen's links, so a tab keeps its own identity. */
+  url?: UrlIdentity;
+
+  /**
+   * Whether this browser may start the negotiation when it finds none.
+   *
+   * This screen has always run the room headlessly at 8x if it opened without
+   * a plan, which is right for one person arriving straight at `/plan` — and
+   * badly wrong for four. Everyone who opened this page early would start
+   * their own full negotiation over the same session, on top of whatever the
+   * town is already running. The host runs it; the rest wait and poll.
+   */
+  canRun?: boolean;
 }) {
   const [view, setView] = useState<PlanView | null>(initialView);
   const [status, setStatus] = useState<Status>(initialView ? "ready" : "loading");
@@ -176,16 +197,26 @@ export function PlanScreen({
   }, []);
 
   const bootstrap = useCallback(async (signal: AbortSignal): Promise<void> => {
-    const existing = await loadView();
+    const existing = await loadView(sessionId);
     if (signal.aborted) return;
     if (existing) {
       publish(existing);
       // A plan with no report yet is a run still writing one. Keep reading.
-      if (!existing.report) await pollForPlan(signal, publish);
+      if (!existing.report) await pollForPlan(signal, publish, sessionId);
       return;
     }
 
     setStatus("negotiating");
+
+    // Not this browser's run to start. Three people in a room who opened the
+    // plan early would otherwise each fire a headless negotiation on top of
+    // whatever the town is already running. The route's lease would refuse
+    // them, but the honest thing is not to ask: wait, and paint what the host
+    // writes.
+    if (!canRun) {
+      await pollForPlan(signal, publish, sessionId);
+      return;
+    }
 
     // Drained and watched at the same time, rather than read once the stream
     // has ended. The route writes the plan to the session the instant the room
@@ -195,8 +226,8 @@ export function PlanScreen({
     // that fails after the plan landed leaves a usable screen, and one that
     // fails before it falls through to the throw below.
     const settled = await Promise.allSettled([
-      runHeadless(signal),
-      pollForPlan(signal, publish),
+      runHeadless(signal, sessionId),
+      pollForPlan(signal, publish, sessionId),
     ]);
     if (signal.aborted) return;
 
@@ -214,8 +245,8 @@ export function PlanScreen({
     // asking a second time is asking a route that will answer.
     if (ran.status === "fulfilled" && ran.value === false) {
       const retried = await Promise.allSettled([
-        runHeadless(signal),
-        pollForPlan(signal, publish),
+        runHeadless(signal, sessionId),
+        pollForPlan(signal, publish, sessionId),
       ]);
       if (signal.aborted) return;
       const retriedPoll = retried[1];
@@ -225,7 +256,7 @@ export function PlanScreen({
     if (poll.status === "rejected" || !poll.value) {
       throw new Error("the negotiation produced no plan");
     }
-  }, [publish]);
+  }, [canRun, publish, sessionId]);
 
   useEffect(() => {
     // Nothing to fetch when the server already handed over a finished plan.
@@ -244,6 +275,54 @@ export function PlanScreen({
     })();
     return () => controller.abort();
   }, [bootstrap, initialView]);
+
+  /**
+   * The other three taps, once there is a plan to approve.
+   *
+   * Nothing carries an approval to this screen: the other three are on their
+   * own phones, and the session is the only thing all four write to. So it is
+   * read on a timer until the room has settled, and then not read again — an
+   * approval is a one-way door.
+   *
+   * Keyed on the approvals rather than on the view, which matters more than it
+   * looks. `loadView` builds a fresh object every time, so depending on `view`
+   * would tear this effect down and rebuild it on every single poll, whether
+   * or not anything had changed. The key only moves when somebody actually
+   * taps, so the timer is created once and lives until the room is done.
+   *
+   * Empty until a plan exists, which is what keeps this from running alongside
+   * the bootstrap's own poll.
+   */
+  const approvals = view ? Object.values(view.approvals) : [];
+  const approvalsKey = approvals.map((yes) => (yes ? "1" : "0")).join("");
+  const everyoneIn = approvalsKey.length > 0 && !approvalsKey.includes("0");
+
+  useEffect(() => {
+    if (approvalsKey.length === 0 || everyoneIn) return;
+
+    let stopped = false;
+    let timer: number | null = null;
+
+    async function poll(): Promise<void> {
+      try {
+        const next = await loadView(sessionId);
+        // A poll may only ever add to what is on screen. `loadView` answers
+        // null while the agents are still out, and letting that overwrite a
+        // plan somebody is reading would blank the screen under them.
+        if (next && !stopped) publish(next);
+      } catch {
+        // A dropped poll costs one beat; the next read is of the whole view.
+      } finally {
+        if (!stopped) timer = window.setTimeout(() => void poll(), APPROVAL_POLL_MS);
+      }
+    }
+
+    timer = window.setTimeout(() => void poll(), APPROVAL_POLL_MS);
+    return () => {
+      stopped = true;
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [approvalsKey, everyoneIn, publish, sessionId]);
 
   if (!view) {
     return (
@@ -273,20 +352,21 @@ export function PlanScreen({
 
       <div className="flex min-w-0 flex-col gap-8">
         {view.report ? (
-          <AgentReportCard report={view.report} you={YOU} names={view.names} />
+          <AgentReportCard report={view.report} you={view.you} names={view.names} />
         ) : (
-          <AgentReportPending you={YOU} names={view.names} />
+          <AgentReportPending you={view.you} names={view.names} />
         )}
         <div className="mt-auto flex flex-col gap-5 pt-2">
           <ApprovalRow
-            you={YOU}
+            you={view.you}
             approvals={view.approvals}
             sessionId={view.sessionId}
+            url={url}
             names={view.names}
           />
           <div className="flex flex-wrap gap-3">
             <PixelLink
-              href="/town"
+              href={withIdentity("/town", url)}
               variant="ghost"
               className="h-12 flex-1 px-4 text-center text-[9px] leading-tight"
             >

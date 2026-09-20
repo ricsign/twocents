@@ -36,7 +36,7 @@ import {
   type BriefMessage,
 } from "@/lib/types";
 import { displayNameFor } from "@/lib/characters";
-import { getOrCreateDefault } from "@/lib/session";
+import { roomFromRequest, resolveSession } from "@/lib/room/identity";
 import { applyBrief } from "@/lib/session-writes";
 
 export const runtime = "nodejs";
@@ -48,6 +48,8 @@ export const dynamic = "force-dynamic";
 
 const requestSchema = z.object({
   participantId: participantIdSchema,
+  /** Which room. Omitted falls back to this browser's cookie, then the demo. */
+  sessionId: z.string().optional(),
   /** The whole conversation so far, newest last, including the human's new line. */
   messages: z.array(briefMessageSchema).min(1),
   /** What the panel currently shows, so extraction refines instead of guessing. */
@@ -128,7 +130,30 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   const { participantId, messages, brief: known } = parsed.data;
-  const session = getOrCreateDefault();
+
+  const { sessionId, seat, joined } = await roomFromRequest(request, {
+    sessionId: parsed.data.sessionId,
+  });
+  const session = resolveSession(sessionId);
+  if (!session) {
+    return NextResponse.json({ error: "No such session." }, { status: 404 });
+  }
+
+  // The rule `/api/session` has always enforced, which this route was missing:
+  // you may brief your own agent and nobody else's. It matters more here than
+  // anywhere, because a brief is where the private ceiling is written — and
+  // the two screens that carry a brief are the only ones that ever see one.
+  //
+  // Gated on `joined` so a solo run is untouched: with no cookie there is no
+  // claim to check against, `viewer` has always been self-asserted, and the
+  // scripted demo briefs `maya` from a browser that never joined anything.
+  if (joined && participantId !== seat) {
+    return NextResponse.json(
+      { error: `${seat} may only brief their own agent, not ${participantId}.` },
+      { status: 403 },
+    );
+  }
+
   // The same resolver the room uses, so an agent briefed in a judges' round
   // calls its human by the name the judge typed.
   const name = displayNameFor(displayNamesOf(session), participantId);
@@ -210,7 +235,13 @@ export async function POST(request: Request): Promise<NextResponse> {
   // briefing chat invalidates a finished run exactly the way an explicit
   // `updateBrief` does. A plan argued from a brief this turn just changed is
   // not a plan for this room any more.
-  applyBrief(session, participantId, brief);
+  //
+  // The second argument is where a photo-seeded draft dies, and this is the
+  // only place it does. `draft` means "we read this off your group chat, check
+  // it" — and the person has just spoken to their own agent, so the caveat has
+  // done its job. Leaving it would sit on their screen telling them to correct
+  // something they have already corrected.
+  applyBrief(session, participantId, brief, { draft: undefined });
 
   const payload: BriefTurnResponse = {
     reply: text,

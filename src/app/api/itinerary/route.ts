@@ -15,10 +15,11 @@
  * search the web twice.
  */
 
-import { PARTICIPANT_IDS } from "@/lib/characters";
+import { PARTICIPANT_IDS, displayNameFor } from "@/lib/characters";
 import { buildItinerary } from "@/lib/itinerary/build";
-import { DEFAULT_SESSION_ID, getOrCreateDefault, getSession, updateSession } from "@/lib/session";
-import type { DemoSession } from "@/lib/types";
+import { resolveSession, roomFromRequest } from "@/lib/room/identity";
+import { updateSession } from "@/lib/session";
+import { displayNamesOf, type DemoSession } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,13 +31,19 @@ export const dynamic = "force-dynamic";
  */
 const inFlight = new Map<string, Promise<DemoSession["itinerary"]>>();
 
-function sessionFor(id: string): DemoSession | undefined {
-  return id === DEFAULT_SESSION_ID ? getOrCreateDefault() : getSession(id);
-}
-
-/** Everyone, or the ones still missing. */
+/**
+ * Everyone, or the ones still missing, by the name they are called here.
+ *
+ * Named rather than keyed because this list is read out on screen, and in a
+ * room the seats are called whatever the group chat called them: "waiting on
+ * priya" on a screen that says Dee everywhere else is a bug a person notices
+ * faster than any of the ones underneath it.
+ */
 function missingApprovals(session: DemoSession): string[] {
-  return PARTICIPANT_IDS.filter((id) => session.participants[id]?.approved !== true);
+  const names = displayNamesOf(session);
+  return PARTICIPANT_IDS.filter((id) => session.participants[id]?.approved !== true).map(
+    (id) => displayNameFor(names, id),
+  );
 }
 
 async function ensureItinerary(session: DemoSession): Promise<DemoSession["itinerary"]> {
@@ -69,8 +76,8 @@ function answer(session: DemoSession) {
 
 /** Reads what has been built. Never builds: a GET that costs money is a trap. */
 export async function GET(request: Request): Promise<Response> {
-  const sessionId = new URL(request.url).searchParams.get("sessionId") ?? DEFAULT_SESSION_ID;
-  const session = sessionFor(sessionId);
+  const { sessionId } = await roomFromRequest(request);
+  const session = resolveSession(sessionId);
   if (!session) return Response.json({ error: "unknown session", sessionId }, { status: 404 });
   return answer(session);
 }
@@ -85,10 +92,11 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const payload = (body ?? {}) as Record<string, unknown>;
-  const sessionId =
-    typeof payload.sessionId === "string" ? payload.sessionId : DEFAULT_SESSION_ID;
+  const { sessionId } = await roomFromRequest(request, {
+    sessionId: typeof payload.sessionId === "string" ? payload.sessionId : undefined,
+  });
 
-  const session = sessionFor(sessionId);
+  const session = resolveSession(sessionId);
   if (!session) return Response.json({ error: "unknown session", sessionId }, { status: 404 });
 
   if (!session.plan) {
@@ -112,6 +120,6 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: "the itinerary could not be built" }, { status: 500 });
   }
 
-  const finished = sessionFor(sessionId);
+  const finished = resolveSession(sessionId);
   return finished ? answer(finished) : Response.json({ error: "session vanished" }, { status: 404 });
 }

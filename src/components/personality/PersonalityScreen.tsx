@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { DisplayNames, ParticipantId } from "@/lib/characters";
 import type { Personality } from "@/lib/types";
+import { withIdentity, type UrlIdentity } from "@/lib/room/links";
 import { PixelButton } from "@/components/ui/PixelButton";
 import { PersonalityStage } from "./PersonalityStage";
 import { PresetRow } from "./PresetRow";
@@ -53,6 +54,7 @@ type SliderKey = "stubborn" | "splurgy" | "blunt" | "adventurous";
 async function savePersonality(
   participantId: ParticipantId,
   personality: Personality,
+  sessionId: string,
   init: RequestInit = {},
 ): Promise<void> {
   try {
@@ -61,6 +63,10 @@ async function savePersonality(
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         action: "updatePersonality",
+        // Named rather than left to the cookie: this screen is reachable in a
+        // room and in a solo run, and a slider that saved into the demo
+        // session would silently tune somebody else's agent.
+        sessionId,
         // Writing your own row. The route refuses anything else.
         viewer: participantId,
         participantId,
@@ -87,12 +93,19 @@ const SLIDERS: { key: SliderKey; low: string; high: string }[] = [
 
 export function PersonalityScreen({
   participantId,
+  sessionId,
+  url,
   initialPersonality,
   topic,
   neverSays,
   names,
 }: {
   participantId: ParticipantId;
+  /** The room this agent belongs to; sent so a save cannot land in the demo. */
+  sessionId: string;
+  /** Threaded back into this screen's links, so a tab keeps its own identity. */
+  url?: UrlIdentity;
+
   /** The personality stored in the session, not a seed. A reload must not revert it. */
   initialPersonality: Personality;
   /** What this room is arguing about, so the preview argues about that too. */
@@ -166,7 +179,7 @@ export function PersonalityScreen({
   // than dropping it, and `keepalive` lets that last request outlive the
   // navigation or the tab close it is issued into.
   useDebouncedEffect(`${sliderKey}|${personality.bio}`, SAVE_DEBOUNCE_MS, (signal) => {
-    void savePersonality(participantId, personality, { keepalive: true, signal });
+    void savePersonality(participantId, personality, sessionId, { keepalive: true, signal });
   });
 
   /**
@@ -188,11 +201,11 @@ export function PersonalityScreen({
     if (leaving) return;
     setLeaving(true);
     await Promise.race([
-      savePersonality(participantId, personality),
+      savePersonality(participantId, personality, sessionId),
       after(SAVE_TIMEOUT_MS),
     ]);
     router.refresh();
-    router.push("/town");
+    router.push(withIdentity("/town", url));
   }
 
   return (
@@ -238,7 +251,7 @@ export function PersonalityScreen({
         </div>
 
         <div className="mt-auto flex flex-wrap items-center justify-between gap-6 pt-2">
-          <Link href="/brief" className="text-[15px] font-bold text-bark no-underline">
+          <Link href={withIdentity("/brief", url)} className="text-[15px] font-bold text-bark no-underline">
             ← Back to the brief
           </Link>
           <PixelButton

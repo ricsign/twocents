@@ -39,6 +39,8 @@ export interface PlanView {
    * roster never have to look a name up for themselves.
    */
   names: DisplayNames;
+  /** Whose screen this is. The one seat whose APPROVE button is yours to press. */
+  you: ParticipantId;
   /** Token and cost accounting for the run that produced this plan. */
   usage: Usage;
 }
@@ -47,18 +49,21 @@ export interface PlanView {
  * Reshapes an already-narrowed session view, or null when the agents have not
  * finished and there is nothing to show yet.
  *
- * Only your approval is read from the view. The other three are not sitting at
- * this laptop: with four devices their taps would arrive from theirs, and in the
- * demo the plan landing is that signal.
+ * Every approval is read from the view now, including the other three. It used
+ * to hardcode them to `true` with a note that "with four devices their taps
+ * would arrive from theirs" — and they do: an unclaimed seat is approved by the
+ * negotiation route when the plan lands, and a claimed one waits for its human.
+ * Either way the answer is in `others[].approved`, which the session view has
+ * carried all along as a public act.
  */
 export function planViewFrom(view: SessionView): PlanView | null {
   const { plan, fairness, report, usage } = view;
   if (!plan || !fairness) return null;
 
   const approvals = {} as Record<ParticipantId, boolean>;
-  for (const id of PARTICIPANT_IDS) {
-    approvals[id] = id === view.viewerId ? view.you.approved : true;
-  }
+  for (const id of PARTICIPANT_IDS) approvals[id] = false;
+  approvals[view.viewerId] = view.you.approved;
+  for (const other of view.others) approvals[other.participantId] = other.approved;
 
   return {
     sessionId: view.sessionId,
@@ -66,6 +71,7 @@ export function planViewFrom(view: SessionView): PlanView | null {
     fairness,
     report,
     approvals,
+    you: view.viewerId,
     names: displayNamesFromView(view),
     usage,
   };

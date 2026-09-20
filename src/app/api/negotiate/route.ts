@@ -26,8 +26,9 @@
  */
 
 import { runNegotiation } from "@/lib/negotiation/engine";
-import { PARTICIPANT_IDS, YOU } from "@/lib/characters";
-import { DEFAULT_SESSION_ID, getOrCreateDefault, getSession, updateSession } from "@/lib/session";
+import { PARTICIPANT_IDS } from "@/lib/characters";
+import { resolveSession, roomFromRequest } from "@/lib/room/identity";
+import { getSession, updateSession } from "@/lib/session";
 import { DEFAULT_VIEWER, eventForViewer } from "@/lib/session-view";
 import {
   participantIdSchema,
@@ -39,28 +40,36 @@ import {
 } from "@/lib/types";
 
 /**
- * The other three approve when the plan lands. You still have to tap.
+ * An empty seat approves itself. A seat with a human in it has to tap.
  *
- * There is one person at this laptop. The other three are played by the app, so
- * their approval is the app's to give — and it already gives it: the plan screen
- * draws their avatars ticked and tells you "that's all four" the moment you
- * approve. Until now the session disagreed, which made the itinerary
- * unreachable: `/api/itinerary` checks the session, found three unapproved
- * participants, and answered 403 behind a screen that had just said everyone
- * was in. One of the two had to be wrong, and the screen is the one people
- * read, so the session is what changed.
+ * `/api/itinerary` checks the session for four approvals, so whoever is not
+ * really there has to be answered for by somebody. Two conditions decide it:
+ * a seat is approved here when it is **not the viewer** and **nobody has
+ * claimed it**.
  *
- * Your own approval is untouched. It is the only real one in the room, it is
- * what the APPROVE button writes, and the gate still holds for it. A build with
- * four humans on four devices would collect the other three the same way.
+ * That one rule covers both shapes the app now has:
+ *
+ * - **One person at one laptop.** Nobody has claimed anything, so the other
+ *   three are played by the app and their approval is the app's to give —
+ *   which the plan screen already assumed, drawing their avatars ticked the
+ *   moment you approve. Yours is excluded and stays the only real one in the
+ *   room, exactly as before.
+ * - **Four people on four phones.** All four seats are claimed, so nothing is
+ *   auto-approved and the gate waits for four real taps. A seat nobody took —
+ *   three friends and an empty chair — still approves itself, because there is
+ *   no one there to tap for it.
+ *
+ * The viewer, rather than `YOU`: whose stream this is, is whose approval is
+ * being withheld, and in a room that is a different person on every device.
  */
-function withSimulatedApprovals(
+function withUnattendedApprovals(
   session: DemoSession,
+  viewer: ParticipantId,
 ): Record<ParticipantId, ParticipantState> {
   const participants = { ...session.participants };
   for (const id of PARTICIPANT_IDS) {
     const existing = participants[id];
-    if (!existing || id === YOU) continue;
+    if (!existing || id === viewer || existing.claimedAt !== null) continue;
     participants[id] = { ...existing, approved: true };
   }
   return participants;
@@ -201,20 +210,36 @@ interface RunParams {
 }
 
 function streamNegotiation(params: RunParams, signal: AbortSignal): Response {
-  const session = params.sessionId === DEFAULT_SESSION_ID
-    ? getOrCreateDefault()
-    : getSession(params.sessionId);
+  const session = resolveSession(params.sessionId);
 
   if (!session) {
     return Response.json({ error: "unknown session", sessionId: params.sessionId }, { status: 404 });
   }
 
+  // The lease first, so nothing below runs twice. In a room this is the second
+  // line of defence rather than the first — the town screen only opens the
+  // stream on the host's browser — but it is the one that actually holds,
+  // because it is on this side of the wire and a client gate is a courtesy.
   const token = claimRun(session.id);
   if (!token) {
     return Response.json(
       { error: "a negotiation is already running for this session", sessionId: session.id },
       { status: 409, headers: { "Retry-After": "1" } },
     );
+  }
+
+  // The room has begun. This is the whole coordination primitive for four
+  // phones: the host opens the stream, this lands in the session, and the
+  // other three see it on their next poll of `/api/session` and follow to the
+  // town. No websocket, no broadcast, nothing to keep in sync — one timestamp
+  // that only ever goes from null to a number.
+  //
+  // Distinct from the lease above, and both are needed: a lease says "somebody
+  // is running this right now" and is released the moment they stop, while
+  // this says "this room has started" and never goes back. Three phones
+  // waiting in the lobby need the second question answered, not the first.
+  if (session.runStartedAt === null) {
+    updateSession(session.id, { runStartedAt: Date.now() });
   }
 
   const encoder = new TextEncoder();
@@ -310,7 +335,7 @@ function streamNegotiation(params: RunParams, signal: AbortSignal): Response {
               // Read fresh, not from the snapshot this request opened with: if
               // you approved while the room was still talking, that tap must
               // not be written back to false underneath you.
-              participants: withSimulatedApprovals(getSession(session.id) ?? session),
+              participants: withUnattendedApprovals(getSession(session.id) ?? session, params.viewer),
             });
           }
           if (event.type === "done") {
@@ -395,13 +420,19 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const payload = (body ?? {}) as Record<string, unknown>;
-  const viewer = parseViewer(payload.viewer);
-  if (!viewer) return unknownViewer(payload.viewer);
+  if (payload.viewer !== undefined && !parseViewer(payload.viewer)) {
+    return unknownViewer(payload.viewer);
+  }
+
+  const { sessionId, seat } = await roomFromRequest(request, {
+    sessionId: typeof payload.sessionId === "string" ? payload.sessionId : undefined,
+    viewer: typeof payload.viewer === "string" ? payload.viewer : undefined,
+  });
 
   return streamNegotiation(
     {
-      sessionId: typeof payload.sessionId === "string" ? payload.sessionId : DEFAULT_SESSION_ID,
-      viewer,
+      sessionId,
+      viewer: seat,
       speed: parseSpeed(payload.speed),
       roundCap: typeof payload.roundCap === "number" ? payload.roundCap : undefined,
     },
@@ -415,13 +446,14 @@ export async function GET(request: Request): Promise<Response> {
   const roundCap = Number(url.searchParams.get("roundCap"));
 
   const raw = url.searchParams.get("viewer");
-  const viewer = parseViewer(raw ?? undefined);
-  if (!viewer) return unknownViewer(raw);
+  if (raw !== null && !parseViewer(raw)) return unknownViewer(raw);
+
+  const { sessionId, seat } = await roomFromRequest(request);
 
   return streamNegotiation(
     {
-      sessionId: url.searchParams.get("sessionId") ?? DEFAULT_SESSION_ID,
-      viewer,
+      sessionId,
+      viewer: seat,
       speed: parseSpeed(url.searchParams.get("speed")),
       roundCap: Number.isFinite(roundCap) && roundCap > 0 ? roundCap : undefined,
     },

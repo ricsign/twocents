@@ -1,14 +1,7 @@
 import Link from "next/link";
 import { CoinIcon } from "@/components/ui/PixelIcons";
 import { CharacterSprite } from "@/components/ui/Sprite";
-import {
-  CHARACTER_LIST,
-  PARTICIPANT_IDS,
-  YOU,
-  displayNameFor,
-} from "@/lib/characters";
-import { getOrCreateDefault } from "@/lib/session";
-import { displayNamesOf } from "@/lib/types";
+import { CHARACTER_LIST } from "@/lib/characters";
 
 /**
  * The title screen, which now has a job beyond looking good.
@@ -25,14 +18,12 @@ import { displayNamesOf } from "@/lib/types";
  */
 
 /**
- * The names come from the session, not the cast.
+ * Static, and deliberately so.
  *
- * A judges' round renames all four seats, and this is the screen people come
- * back to between rounds. Rendering it per request costs the app its one
- * static page and buys a title screen that never introduces a judge to
- * somebody who is not in the room any more.
+ * It reads no session and no cookie, which is what makes it reachable from any
+ * screen in any state — including a room whose code has expired. The seats are
+ * numbered rather than named for the same reason: there is nobody in them yet.
  */
-export const dynamic = "force-dynamic";
 
 const STEPS: { n: number; name: string; gloss: string }[] = [
   { n: 1, name: "BRIEF", gloss: "Tell your agent the truth, real budget included." },
@@ -42,12 +33,6 @@ const STEPS: { n: number; name: string; gloss: string }[] = [
 ];
 
 export default function TitleScreen() {
-  const names = displayNamesOf(getOrCreateDefault());
-  const yourName = displayNameFor(names, YOU);
-  const otherNames = PARTICIPANT_IDS.filter((id) => id !== YOU).map((id) =>
-    displayNameFor(names, id),
-  );
-
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-8 bg-parchment px-6 py-12">
       <div className="flex items-center gap-4">
@@ -67,21 +52,23 @@ export default function TitleScreen() {
             <div className="bob" style={{ animationDelay: `${i * 0.18}s` }}>
               <CharacterSprite id={c.id} size={96} state="idle" />
             </div>
+            {/* Numbered, not named. Nobody is anybody yet: who sits in each
+                seat is decided by whoever opens the link and says "that's me",
+                and printing four names here would introduce people who are not
+                in the room. */}
             <div
               className="disp px-2 py-1 text-[7px] text-white"
               style={{ background: c.color }}
             >
-              {c.id === YOU
-                ? `${displayNameFor(names, c.id).toUpperCase()} · YOU`
-                : displayNameFor(names, c.id).toUpperCase()}
+              PLAYER {i + 1}
             </div>
           </div>
         ))}
       </div>
 
       <p className="max-w-[620px] text-center text-[15px] font-semibold text-bark">
-        You are {yourName}. {otherNames.join(", ")} have already briefed their
-        agents in private. Yours is waiting to hear from you.
+        Make a room, send the link to three friends, and each of you tells your
+        own agent the thing nobody types in the group chat.
       </p>
 
       <ol className="m-0 grid w-full max-w-[940px] list-none grid-cols-1 gap-3 p-0 sm:grid-cols-2 min-[1100px]:grid-cols-4">
@@ -100,12 +87,26 @@ export default function TitleScreen() {
         ))}
       </ol>
 
-      <Link
-        href="/brief"
-        className="disp px-press px-shadow inline-flex h-16 items-center justify-center border-4 border-ink bg-coral px-10 text-[12px] text-white no-underline"
-      >
-        PRESS START
-      </Link>
+      <div className="flex flex-col items-center gap-3">
+        {/* Making a room is the front door now. The old PRESS START went
+            straight to the briefing screen — one person, one agent, no room —
+            which is still the fastest way to see the product alone and is
+            still the 0:15 beat in `docs/DEMO.md`. It keeps its place, one size
+            down, rather than its place at the front. */}
+        <Link
+          href="/start"
+          className="disp px-press px-shadow inline-flex h-16 items-center justify-center border-4 border-ink bg-coral px-10 text-[12px] text-white no-underline"
+        >
+          CREATE A ROOM
+        </Link>
+
+        <Link
+          href="/brief"
+          className="disp px-press inline-flex h-11 items-center justify-center border-[3px] border-ink bg-card px-6 text-[9px] text-ink no-underline"
+        >
+          OR TRY IT ALONE
+        </Link>
+      </div>
 
       <p className="max-w-[540px] text-center text-[15px] font-semibold text-bark">
         You brief your agent in private. It works out the plan with the others
