@@ -6,28 +6,7 @@ import { agentName } from "@/lib/characters";
 import { Avatar } from "@/components/ui/Sprite";
 import { PixelButton } from "@/components/ui/PixelButton";
 import { LockIcon } from "@/components/ui/PixelIcons";
-import type { BriefMessage } from "@/lib/types";
-
-/**
- * A transcript line plus the one thing React needs that the domain model does
- * not carry: a stable key. Lives here because this is the component that
- * renders one, and `BriefScreen` only holds the list on its behalf.
- */
-/**
- * The agent's first line, and the only thing on screen before the person types.
- *
- * It is a question, not a greeting: the screen is one conversation whose job is
- * to get three things out of somebody (where, when, and the number), and an
- * agent that opens with "hello" spends the first turn on nothing. It lives here
- * rather than in `lib/seed` so that reaching for it does not pull the seeded
- * grad trip into the browser bundle.
- */
-export const BRIEF_OPENING_LINE =
-  "Before I go plan this with the others: where do you want to go, when, and what’s the real number?";
-
-export interface ChatMessage extends BriefMessage {
-  id: string;
-}
+import type { ChatMessage } from "./chatMessages";
 
 /**
  * The private briefing card: who you are talking to, what you have said so
@@ -221,18 +200,3 @@ function TypingDots() {
   );
 }
 
-/**
- * A stored transcript as the chat renders it: a stable React key per line, and
- * the agent's opening question when there is no conversation to come back to.
- */
-export function chatMessagesFrom(
-  transcript: readonly BriefMessage[],
-): ChatMessage[] {
-  if (transcript.length === 0) {
-    return [{ id: "opening", role: "agent", text: BRIEF_OPENING_LINE }];
-  }
-  return transcript.map((message, index) => ({
-    ...message,
-    id: `stored-${index}`,
-  }));
-}

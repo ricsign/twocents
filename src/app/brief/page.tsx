@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { TopBar } from "@/components/ui/TopBar";
 import { BriefScreen } from "@/components/brief/BriefScreen";
-import { chatMessagesFrom } from "@/components/brief/BriefChat";
+import { chatMessagesFrom } from "@/components/brief/chatMessages";
 import { PARTICIPANT_IDS, YOU, type ParticipantId } from "@/lib/characters";
 import { hasBriefed } from "@/lib/flow";
 import { SAMPLE_BRIEF } from "@/lib/seed";

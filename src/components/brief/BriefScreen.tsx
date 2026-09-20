@@ -5,7 +5,8 @@ import type { DisplayNames, ParticipantId } from "@/lib/characters";
 import type { Brief, BriefMessage } from "@/lib/types";
 import { PixelButton, PixelLink } from "@/components/ui/PixelButton";
 import { AgentKnowsPanel } from "./AgentKnowsPanel";
-import { BriefChat, chatMessagesFrom, type ChatMessage } from "./BriefChat";
+import { BriefChat } from "./BriefChat";
+import { chatMessagesFrom, type ChatMessage } from "./chatMessages";
 import { BriefedRoster } from "./BriefedRoster";
 
 /** Gives a stored transcript line the key React needs to render it. */

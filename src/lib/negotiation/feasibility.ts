@@ -17,6 +17,13 @@
  * - **It says nothing private.** It sees an `Offer`, which is public by
  *   construction — it was just spoken aloud — and never a `Brief`.
  *
+ * One rule earns its length in the prompt below: an option the desk could not
+ * price is bookable. Agents describe options the way people do — "the beach
+ * resort", no departure city — so a desk that answered "not bookable, cannot
+ * verify" flagged nearly everything, and rule 7 of the public prompt then sent
+ * every agent after the same missing link. The room spent its rounds asking
+ * for paperwork instead of planning a trip. Not knowing is not evidence.
+ *
  * Server-only. No React, no DOM.
  */
 
@@ -70,9 +77,10 @@ const SYSTEM = [
   "",
   "Rules:",
   "- Search for the real cost of flights and lodging for that destination and those dates. Use what you find, not what you remember.",
-  "- `bookable` is false only when the price is clearly out of reach — off by roughly a third or more, or the dates do not work at all. A price in the right neighbourhood is bookable.",
+  "- `bookable` is false ONLY when your search established that the price is clearly out of reach — off by roughly a third or more, or the dates do not work at all.",
+  "- If you could not establish a price, `bookable` is TRUE. Not knowing is not evidence. An option described loosely — \"the beach resort\", no departure city — is an option you cannot price, so say what it would plausibly cost and leave it bookable. Marking it false turns the table into an argument about missing paperwork instead of about the trip.",
   "- `realisticPerPerson` is the all-in per-person figure your search supports, or null if the search did not establish one.",
-  "- `note` is ONE short sentence, written to be read aloud at the table: what it really costs, or what makes it work. No sources in the sentence, no hedging, no preamble.",
+  "- `note` is ONE short sentence, written to be read aloud at the table: what it really costs, or what makes it work. When you could not price it, say what it would plausibly run to. No sources in the sentence, no hedging, no preamble, and never ask for more detail — nobody at that table can give you any.",
   "- `sources` is the bare host names you used, like \"kayak.com\". Three at most.",
 ].join("\n");
 

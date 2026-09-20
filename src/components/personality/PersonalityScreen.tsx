@@ -89,6 +89,7 @@ export function PersonalityScreen({
   participantId,
   initialPersonality,
   topic,
+  neverSays,
   names,
 }: {
   participantId: ParticipantId;
@@ -96,6 +97,12 @@ export function PersonalityScreen({
   initialPersonality: Personality;
   /** What this room is arguing about, so the preview argues about that too. */
   topic: SampleTopic;
+  /**
+   * This person's own ceiling, formatted, or null when they have not named
+   * one. Shown only to them, on their own screen, as the promise the line
+   * under the stage is making.
+   */
+  neverSays: string | null;
   /** Who the agent on the stage speaks for. */
   names?: DisplayNames;
 }) {
@@ -193,6 +200,7 @@ export function PersonalityScreen({
       <PersonalityStage
         participantId={participantId}
         line={line}
+        neverSays={neverSays}
         names={names}
       />
 

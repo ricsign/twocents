@@ -49,6 +49,11 @@ export default function PersonalityPage() {
         participantId={YOU}
         initialPersonality={view.you.personality}
         topic={sampleTopicFor(view)}
+        neverSays={
+          view.you.brief.budgetCeiling === null
+            ? null
+            : `$${view.you.brief.budgetCeiling}`
+        }
         names={displayNamesFromView(view)}
       />
     </div>

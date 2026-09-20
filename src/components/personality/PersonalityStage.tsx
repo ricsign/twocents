@@ -16,10 +16,18 @@ const AGENT_SIZE = "clamp(150px, 24vw, 224px)";
 export function PersonalityStage({
   participantId,
   line,
+  neverSays,
   names,
 }: {
   participantId: ParticipantId;
   line: string;
+  /**
+   * The figure this agent is holding, already formatted, or null when its
+   * human has not named one. The caption used to assert "$600" outright,
+   * which was this seat's seeded ceiling and nobody else's: a person who told
+   * their agent $900 read a promise about somebody else's money.
+   */
+  neverSays: string | null;
   /** Who this agent speaks for, on the tag under the sprite. */
   names?: DisplayNames;
 }) {
@@ -83,7 +91,7 @@ export function PersonalityStage({
           “{line}”
         </p>
         <p className="m-0 text-[14px] font-bold text-bark">
-          Changes with the sliders. Still never says $600.
+          Changes with the sliders.{neverSays ? ` Still never says ${neverSays}.` : ""}
         </p>
       </div>
     </div>

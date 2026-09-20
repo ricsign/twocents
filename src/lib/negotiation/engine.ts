@@ -89,17 +89,64 @@ export interface NegotiationRunOptions {
  * facts the engine already knows, and asking a model to restate them is tokens
  * spent on something it can get wrong.
  */
+/**
+ * The offer as its proposer describes it: the trip, and nothing about the
+ * bookkeeping around it.
+ *
+ * `id`, `proposedBy` and `feasibility` are cut out of what the model is asked
+ * for, because all three are things the engine knows and it knows them better.
+ * The id is generated here, `proposedBy` is whoever is speaking, and the
+ * feasibility verdict is overwritten by the web check a few lines below no
+ * matter what arrives. Asking for them anyway cost three ways: a wrong
+ * `proposedBy` — a display name, or the agent naming whoever it was answering
+ * — failed the whole draft against this schema, and a failed draft silently
+ * becomes an offline one, so a live room kept putting canned template options
+ * on the table. It also spent output tokens inside a tight cap on fields that
+ * were discarded.
+ */
+const offerDraftSchema = offerSchema
+  .omit({ proposedBy: true, feasibility: true })
+  .partial({ id: true });
+
+/**
+ * The plan as the model writes it.
+ *
+ * Same cut as `offerDraftSchema`, and for the same reason: the final call was
+ * failing its own schema on `offer.proposedBy` and falling back to the offline
+ * script, so a live negotiation ended on a canned plan. Whose option won is
+ * something the engine can look up — it has every offer that was put on the
+ * table — and `groupTotal` and `agreedInMs` are overwritten below regardless.
+ */
+const planDraftSchema = planSchema.extend({
+  offer: offerDraftSchema,
+  runnerUp: offerDraftSchema.nullable(),
+  groupTotal: z.number().optional(),
+  agreedInMs: z.number().optional(),
+});
+
 const turnDraftSchema = z.object({
   kind: turnKindSchema,
   text: z.string(),
-  offer: offerSchema.optional(),
+  offer: offerDraftSchema.optional(),
   privateReasonKept: z.string().optional(),
 });
 
-type TurnDraft = z.infer<typeof turnDraftSchema>;
+/** What the model emits. */
+type TurnDraftRaw = z.infer<typeof turnDraftSchema>;
 
-/** Room for a line plus an offer; a turn that needs more than this is too long. */
-const TURN_MAX_TOKENS = 600;
+/** What `generateLine` hands back: the same line, with a finished offer. */
+type TurnDraft = Omit<TurnDraftRaw, "offer"> & { offer?: Offer };
+
+/**
+ * Room for a line plus an offer.
+ *
+ * Sized for the whole emit, not for the sentence. A turn that proposes
+ * something carries eight more fields than one that does not, and a cap that
+ * only fits the prose truncates the tool call mid-object — which arrives as a
+ * schema failure, which falls back to the offline script. The room then reads
+ * as scripted at exactly the moments it is doing the most interesting thing.
+ */
+const TURN_MAX_TOKENS = 1200;
 const PLAN_MAX_TOKENS = 900;
 const REPORT_MAX_TOKENS = 500;
 
@@ -567,6 +614,9 @@ export async function* runNegotiation(
 
   const aborted = (): boolean => opts.signal?.aborted === true;
 
+  /** Makes each generated offer id unique inside one run. */
+  let offersProposed = 0;
+
   /**
    * Generates one public line and guarantees it is safe to say.
    *
@@ -609,7 +659,7 @@ export async function* runNegotiation(
     });
 
     const first = await runJson(request(correction), turnDraftSchema);
-    let draft: TurnDraft = first ?? {
+    let draft: TurnDraftRaw = first ?? {
       kind: "agrees",
       text: `${displayNameFor(names, speaker)}'s agent backs where this is going.`,
     };
@@ -641,6 +691,10 @@ export async function* runNegotiation(
       const offer = draft.offer;
       const scrubbed: Offer = {
         ...offer,
+        // Stamped here rather than asked for: the speaker is this call's own
+        // argument, and the id only has to be unique within one run.
+        id: offer.id ?? `offer-${speaker}-${attemptRound}-${offersProposed++}`,
+        proposedBy: speaker,
         highlights: offer.highlights.map((line) => checkForLeaks(line, secrets).redacted),
         flightNote: checkForLeaks(offer.flightNote, secrets).redacted,
         lodgingNote: checkForLeaks(offer.lodgingNote, secrets).redacted,
@@ -649,10 +703,10 @@ export async function* runNegotiation(
       // Overwritten rather than merged: whatever the proposer put in this field
       // is its own opinion of its own price, and the whole point is that the
       // web gets the last word on that.
-      draft = { ...draft, offer: { ...scrubbed, feasibility: await checkOffer(scrubbed) } };
+      return { ...draft, offer: { ...scrubbed, feasibility: await checkOffer(scrubbed) } };
     }
 
-    return draft;
+    return { ...draft, offer: undefined };
   };
 
   let converged: Offer | null = null;
@@ -764,12 +818,45 @@ export async function* runNegotiation(
         offline: offlineHints(order[0] as ParticipantId, 0),
       },
     },
-    planSchema,
+    planDraftSchema,
   );
 
+  /**
+   * Puts the bookkeeping back on an offer the model described.
+   *
+   * It is matched to something already on the table by destination, because a
+   * plan is meant to be one of the options the room actually discussed: that
+   * recovers the real id, the real proposer and the web check behind it. When
+   * nothing matches — the model summarised the compromise into a new name —
+   * the offer still stands, credited to whoever the room converged with.
+   */
+  const settle = (
+    draft: z.infer<typeof offerDraftSchema>,
+    index: number,
+  ): Offer => {
+    const same = (a: string, b: string): boolean =>
+      a.trim().toLowerCase() === b.trim().toLowerCase();
+    const known = offers.find((offer) => same(offer.destination, draft.destination));
+    return {
+      ...draft,
+      id: draft.id ?? known?.id ?? `offer-plan-${index}`,
+      proposedBy: known?.proposedBy ?? converged?.proposedBy ?? (order[0] as ParticipantId),
+      ...(known?.feasibility ? { feasibility: known.feasibility } : {}),
+    };
+  };
+
   const fallbackOffer = converged ?? offers[offers.length - 1] ?? null;
-  const resolved: Plan | null =
-    planValue ?? (fallbackOffer ? candidatePlan(fallbackOffer) : null);
+  const resolved: Plan | null = planValue
+    ? {
+        ...planValue,
+        offer: settle(planValue.offer, 0),
+        runnerUp: planValue.runnerUp ? settle(planValue.runnerUp, 1) : null,
+        groupTotal: planValue.groupTotal ?? 0,
+        agreedInMs: planValue.agreedInMs ?? 0,
+      }
+    : fallbackOffer
+      ? candidatePlan(fallbackOffer)
+      : null;
 
   if (!resolved) {
     // No offers, no plan: the room said nothing usable. End the stream honestly
