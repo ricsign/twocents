@@ -574,14 +574,24 @@ export async function* runNegotiation(
     if (!webSearchEnabled()) return UNCHECKED;
     const request = buildFeasibilityRequest(offer);
 
+    const startedAt = Date.now();
     try {
       const result = await provider.json(request, offerFeasibilitySchema);
       addUsage(result.usage);
+      // What one search actually costs the run, per offer. Printed because the
+      // whole point of making this call non-blocking is a wall-clock claim,
+      // and a claim nobody can read the number behind is a guess.
+      console.info(`[negotiation] offer-check ${offer.id} in ${Date.now() - startedAt}ms`);
       // The pages come from the call, not from the model's answer: `sources` is
       // what it says it read, `links` is what it actually opened.
       return { ...result.value, links: result.sources };
     } catch (error) {
       logOnce("offer-check", error);
+      // Timed here too: a check that gave up at its deadline is the expensive
+      // case, and the one worth being able to see in the log.
+      console.info(
+        `[negotiation] offer-check ${offer.id} gave up after ${Date.now() - startedAt}ms`,
+      );
       try {
         const canned = await offline.json(request, offerFeasibilitySchema);
         return canned.value;
@@ -634,6 +644,105 @@ export async function* runNegotiation(
 
   /** Makes each generated offer id unique inside one run. */
   let offersProposed = 0;
+
+  /* ---- The price checks, in flight ---------------------------------------- */
+
+  /**
+   * The checks that have not answered yet, by offer id.
+   *
+   * The room used to await one of these before it would let the offer be
+   * spoken, which meant every proposal froze the town for the length of a web
+   * search — four agents over five rounds, and it was the longest thing on
+   * screen by some distance. The offer now hits the table immediately and its
+   * check runs beside the negotiation.
+   *
+   * What the engine still owes is that no verdict is lost. `findConvergedOffer`
+   * reads `feasibility?.bookable !== false` and the stored transcript rows
+   * carry `sourced`, so the outstanding checks are joined once per round —
+   * after the rotation, before convergence is decided — which is the last
+   * moment at which a verdict can still change the answer.
+   */
+  const pendingChecks = new Map<string, Promise<void>>();
+
+  /** Verdicts that have landed and not yet been yielded to the caller. */
+  const landedChecks: Extract<NegotiationEvent, { type: "offer-checked" }>[] = [];
+
+  /**
+   * Every verdict that has come back, by offer id.
+   *
+   * The arrays below are not enough on their own, because a check can answer
+   * while its own line is still being generated — a repeat nudge is a second
+   * model call, and the offline provider answers in microseconds — and at that
+   * moment the offer is in neither `offers` nor `turns` for `applyCheck` to
+   * find. This map is what the round loop reads to catch up a verdict that
+   * arrived before the thing it belongs to existed, which makes the whole
+   * mechanism independent of which of the two lands first.
+   */
+  const verdicts = new Map<string, OfferFeasibility>();
+
+  /**
+   * Writes a verdict onto the offer and the turn that carry it.
+   *
+   * Both arrays are rewritten in place rather than the objects mutated: the
+   * offers list is what `buildNegotiationUserPrompt` formats for the next
+   * agent, so a verdict landing mid-round reaches the rest of the table the
+   * same way it always did, and the turn is what the route reads back.
+   */
+  const applyCheck = (offerId: string, feasibility: OfferFeasibility): void => {
+    verdicts.set(offerId, feasibility);
+    const sourced = sourcedFrom(feasibility);
+
+    for (let i = 0; i < offers.length; i += 1) {
+      const offer = offers[i];
+      if (offer && offer.id === offerId) offers[i] = { ...offer, feasibility };
+    }
+
+    for (let i = 0; i < turns.length; i += 1) {
+      const turn = turns[i];
+      const offer = turn?.offer;
+      if (!turn || !offer || offer.id !== offerId) continue;
+      turns[i] = {
+        ...turn,
+        offer: { ...offer, feasibility },
+        ...(sourced ? { sourced } : {}),
+      };
+    }
+  };
+
+  /** Starts one check and queues its verdict for the next drain. */
+  const startCheck = (offer: Offer): void => {
+    const settled = checkOffer(offer).then((feasibility) => {
+      applyCheck(offer.id, feasibility);
+      const sourced = sourcedFrom(feasibility);
+      landedChecks.push({
+        type: "offer-checked",
+        offerId: offer.id,
+        feasibility,
+        ...(sourced ? { sourced } : {}),
+      });
+      pendingChecks.delete(offer.id);
+    });
+    pendingChecks.set(offer.id, settled);
+  };
+
+  /** Every verdict that has landed since the last drain, as frames. */
+  function* drainChecks(): Generator<NegotiationEvent, void, undefined> {
+    while (landedChecks.length > 0) {
+      const landed = landedChecks.shift();
+      if (landed) yield landed;
+    }
+  }
+
+  /**
+   * Joins every outstanding check.
+   *
+   * `checkOffer` never rejects — it answers `UNCHECKED` rather than throwing —
+   * so this settles on the slowest deadline and nothing else.
+   */
+  const joinChecks = async (): Promise<void> => {
+    if (pendingChecks.size === 0) return;
+    await Promise.all([...pendingChecks.values()]);
+  };
 
   /**
    * Generates one public line and guarantees it is safe to say.
@@ -719,10 +828,14 @@ export async function* runNegotiation(
         lodgingNote: checkForLeaks(offer.lodgingNote, secrets).redacted,
       };
 
-      // Overwritten rather than merged: whatever the proposer put in this field
-      // is its own opinion of its own price, and the whole point is that the
-      // web gets the last word on that.
-      return { ...draft, offer: { ...scrubbed, feasibility: await checkOffer(scrubbed) } };
+      // The check starts here and is not waited on. The offer goes to the
+      // table with no `feasibility` at all, which is the honest state of it —
+      // nothing has been checked yet — and the verdict is written onto it by
+      // `applyCheck` when it lands. Whatever the proposer put in that field is
+      // dropped either way: it is the proposer's own opinion of its own price,
+      // and the point of the desk is that the web gets the last word on that.
+      startCheck(scrubbed);
+      return { ...draft, offer: scrubbed };
     }
 
     return { ...draft, offer: undefined };
@@ -780,9 +893,16 @@ export async function* runNegotiation(
           );
         }
 
-        // Only a turn that put a priced option on the table has a search
-        // behind it, and only when that search actually opened something.
-        const sourced = sourcedFrom(draft.offer?.feasibility);
+        // The desk is usually still working at this point, so an offer
+        // normally reaches the table with no verdict on it — that is the
+        // whole change, and the `offer-checked` frame is what fills it in.
+        // When the verdict did beat the line, it is picked up here instead,
+        // because `applyCheck` ran before either array had anything to patch.
+        const drafted = draft.offer;
+        const early = drafted ? verdicts.get(drafted.id) : undefined;
+        const proposed: Offer | undefined =
+          drafted && early ? { ...drafted, feasibility: early } : drafted;
+        const sourced = early ? sourcedFrom(early) : null;
 
         const turn: NegotiationTurn = {
           id: `turn-${speaker}-${round}-${turns.length}`,
@@ -790,11 +910,18 @@ export async function* runNegotiation(
           speaker,
           kind: draft.kind,
           text: draft.text,
-          ...(draft.offer ? { offer: draft.offer } : {}),
+          ...(proposed ? { offer: proposed } : {}),
           ...(draft.privateReasonKept ? { privateReasonKept: draft.privateReasonKept } : {}),
           ...(sourced ? { sourced } : {}),
         };
         turns.push(turn);
+        // Pushed in the same synchronous step as the turn, before the yield
+        // below hands control back to the caller: a verdict landing across
+        // that suspension has to find both halves or it patches one and
+        // leaves the other stale, and `findConvergedOffer` reads this array.
+        if (proposed && !offers.some((existing) => existing.id === proposed.id)) {
+          offers.push(proposed);
+        }
 
         yield {
           type: "speak",
@@ -802,15 +929,23 @@ export async function* runNegotiation(
           kind: turn.kind,
           text: turn.text,
           ...(turn.privateReasonKept ? { privateReasonKept: turn.privateReasonKept } : {}),
-          ...(sourced ? { sourced } : {}),
         };
 
-        if (turn.offer) {
-          const offer = turn.offer;
-          if (!offers.some((existing) => existing.id === offer.id)) offers.push(offer);
-          yield { type: "offer", speaker, offer };
-        }
+        if (proposed) yield { type: "offer", speaker, offer: proposed };
+
+        // Anything the desk answered while this agent was composing. Sent
+        // between turns rather than held to the end of the round, so a card
+        // fills in close to when it was proposed.
+        yield* drainChecks();
       }
+
+      // The join. Every verdict has to be in hand before the two convergence
+      // rules below read `feasibility`, and before the transcript rows the
+      // route stores are read back, so this is where the round pays for
+      // whatever the searches cost — once, for all four of them at their
+      // slowest, instead of four times in series.
+      await joinChecks();
+      yield* drainChecks();
 
       // From round two, after a full rotation: everyone has now answered the
       // offers on the table at least once, so an offer that clears the rule has

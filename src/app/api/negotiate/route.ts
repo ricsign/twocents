@@ -97,6 +97,11 @@ const BEAT_WEIGHT: Record<NegotiationEvent["type"], number> = {
   thinking: 0.4,
   speak: 1,
   offer: 0.35,
+  // Zero: this frame fills in a card that is already on screen rather than
+  // drawing a new one, and it arrives whenever the desk answers. Holding the
+  // engine at it would pay back the wait that making the check non-blocking
+  // just removed.
+  "offer-checked": 0,
   // Zero, deliberately. The delay is applied *after* a frame is sent, so this
   // one no longer paces anything a person watches — it only holds the engine
   // at the yield, which is where it starts writing the plan up. `agreed` now
@@ -248,10 +253,38 @@ function streamNegotiation(params: RunParams, signal: AbortSignal): Response {
               kind: event.kind,
               text: event.text,
               ...(event.privateReasonKept ? { privateReasonKept: event.privateReasonKept } : {}),
-              // Carried so a transcript read back from the session still shows
-              // the search behind a line, and the links it opened.
-              ...(event.sourced ? { sourced: event.sourced } : {}),
             });
+          }
+          // An offer frame always follows its speaker's `speak` frame, so it
+          // hangs on that turn — the same rule the town's reducer applies, so
+          // a transcript read back out of the session renders the one card the
+          // live run drew rather than a bare quote.
+          if (event.type === "offer") {
+            const offer = event.offer;
+            for (let i = turns.length - 1; i >= 0; i -= 1) {
+              const turn = turns[i];
+              if (turn && turn.speaker === event.speaker && !turn.offer) {
+                turns[i] = { ...turn, offer };
+                break;
+              }
+            }
+          }
+          // The verdict, applied to the row that is already there. The check
+          // runs beside the negotiation now, so this frame arrives after the
+          // offer it belongs to — carried so a transcript read back still
+          // shows what the search found and the pages it opened.
+          if (event.type === "offer-checked") {
+            for (let i = turns.length - 1; i >= 0; i -= 1) {
+              const turn = turns[i];
+              const offer = turn?.offer;
+              if (!turn || !offer || offer.id !== event.offerId) continue;
+              turns[i] = {
+                ...turn,
+                offer: { ...offer, feasibility: event.feasibility },
+                ...(event.sourced ? { sourced: event.sourced } : {}),
+              };
+              break;
+            }
           }
           if (event.type === "agreed") {
             updateSession(session.id, {

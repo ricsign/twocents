@@ -371,6 +371,25 @@ const PUBLIC_EVENTS: NegotiationEvent[] = [
   { type: "round", round: 1, of: 5 },
   { type: "thinking", speaker: "jordan" },
   { type: "offer", speaker: "maya", offer: OFFER },
+  // The price check's verdict, as of PR #26: the check now runs beside the
+  // negotiation and its answer arrives on its own frame. It is about an
+  // option that was said out loud and was built from an `Offer`, never a
+  // `Brief`, so it crosses the wire whole.
+  {
+    type: "offer-checked",
+    offerId: OFFER.id,
+    feasibility: {
+      bookable: true,
+      realisticPerPerson: 560,
+      note: "Flights run about $340 and a bed about $44 a night.",
+      sources: ["kayak.com"],
+      links: [{ title: "Flights to San Juan", url: "https://kayak.com/flights", host: "kayak.com" }],
+    },
+    sourced: {
+      note: "A quick web search shows: Flights run about $340 and a bed about $44 a night.",
+      links: [{ title: "Flights to San Juan", url: "https://kayak.com/flights", host: "kayak.com" }],
+    },
+  },
   // Carries the fairness meter as of PR #24: the frame is emitted the instant
   // the room settles, and the plan screen needs both halves before it renders.
   // The rows name no ceiling and every viewer sees the same meter, so this

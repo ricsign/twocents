@@ -161,6 +161,70 @@ class CountingProvider implements LLMProvider {
 }
 
 /**
+ * The offline provider with one kind of call held at the door.
+ *
+ * `CountingProvider` can say how many calls happened and how many overlapped;
+ * it cannot say that something reached the screen *while* a call was still
+ * outstanding, because the canned provider answers in microseconds and every
+ * ordering looks instantaneous. This one holds every call of one tag until
+ * `release`, which makes "the offer was on the table before its check had
+ * answered" a thing a check can actually observe rather than infer.
+ *
+ * Wraps rather than reimplements, so a released call still returns the canned
+ * answer the rest of this file asserts on.
+ */
+class GatedProvider implements LLMProvider {
+  readonly name = "offline-gated";
+  readonly live = false;
+
+  private readonly inner = new OfflineProvider();
+  private readonly gate: TaskTag;
+  private readonly held: (() => void)[] = [];
+
+  /** Gated calls that have entered, and gated calls that have answered. */
+  started = 0;
+  finished = 0;
+
+  constructor(gate: TaskTag) {
+    this.gate = gate;
+  }
+
+  async text(req: CompletionRequest): Promise<CompletionResult<string>> {
+    await this.hold(req.tag);
+    const result = await this.inner.text(req);
+    this.finish(req.tag);
+    return result;
+  }
+
+  async json<T>(
+    req: CompletionRequest,
+    schema: z.ZodType<T>,
+  ): Promise<CompletionResult<T>> {
+    await this.hold(req.tag);
+    const result = await this.inner.json(req, schema);
+    this.finish(req.tag);
+    return result;
+  }
+
+  /** Lets everything waiting through. Safe when nothing is. */
+  release(): void {
+    for (const resume of this.held.splice(0)) resume();
+  }
+
+  private hold(tag: TaskTag): Promise<void> {
+    if (tag !== this.gate) return Promise.resolve();
+    this.started += 1;
+    return new Promise<void>((resolve) => {
+      this.held.push(resolve);
+    });
+  }
+
+  private finish(tag: TaskTag): void {
+    if (tag === this.gate) this.finished += 1;
+  }
+}
+
+/**
  * The run flattened to one line per event.
  *
  * Compared as strings rather than field by field: a field-by-field check proves
@@ -764,6 +828,73 @@ async function main(): Promise<void> {
       assert.ok(done.reports[participantId], `${participantId} got no private report`);
     }
     assert.equal(done.usage.calls, provider.calls, "the usage tally lost a call");
+  });
+
+  // The offer check searches the web, and the room used to await it before it
+  // would let the offer be spoken: every proposal froze the town for the
+  // length of the search, four agents over five rounds. The offer now hits the
+  // table immediately and the verdict follows on its own frame.
+  await check("an offer reaches the table before its price check has answered", async () => {
+    const provider = new GatedProvider("offer-check");
+    const order: string[] = [];
+    const checked: Extract<NegotiationEvent, { type: "offer-checked" }>[] = [];
+    let firstOffer: { started: number; finished: number } | null = null;
+    let done: Extract<NegotiationEvent, { type: "done" }> | null = null;
+
+    for await (const event of runNegotiation({
+      session: scriptedSession("check-nonblocking-offer-check"),
+      provider,
+    })) {
+      if (event.type === "offer") {
+        order.push(`offer:${event.offer.id}`);
+        if (firstOffer === null) {
+          firstOffer = { started: provider.started, finished: provider.finished };
+        }
+        assert.equal(
+          event.offer.feasibility,
+          undefined,
+          `${event.offer.id} hit the table carrying a verdict it could not have had yet`,
+        );
+      }
+      if (event.type === "offer-checked") {
+        order.push(`checked:${event.offerId}`);
+        checked.push(event);
+      }
+      if (event.type === "done") done = event;
+
+      // Nothing is released until the first offer has been seen, which is
+      // what makes that frame an observation of a check still in flight
+      // rather than of one that answered during the `thinking` frame before
+      // it. From there on every frame releases, so no held call can deadlock
+      // the join at the end of the round.
+      if (firstOffer !== null) provider.release();
+    }
+
+    assert.ok(firstOffer, "no offer was ever put on the table");
+    assert.equal(firstOffer.started, 1, "the check had not been started when the offer went out");
+    assert.equal(firstOffer.finished, 0, "the room waited for the check before speaking");
+
+    // Every option gets its verdict, and never before the option itself.
+    const offers = order.filter((entry) => entry.startsWith("offer:"));
+    assert.ok(offers.length >= 2, "the seeded room should put two options up");
+    assert.equal(checked.length, offers.length, "an offer went unchecked");
+    for (const entry of offers) {
+      const id = entry.slice("offer:".length);
+      const proposed = order.indexOf(`offer:${id}`);
+      const verdict = order.indexOf(`checked:${id}`);
+      assert.ok(verdict > proposed, `${id} was checked before it was proposed`);
+    }
+
+    // And the engine still had every verdict in hand before it settled: the
+    // convergence rule reads `feasibility.bookable`, so an offer that reached
+    // the plan unchecked would mean the join at the end of the round was not
+    // doing its job.
+    assert.ok(done, "the run never finished");
+    assert.ok(done.plan, "the terminal frame carried no plan");
+    assert.ok(
+      done.plan.offer.feasibility,
+      "the room settled on an offer whose check never landed on it",
+    );
   });
 
   await check("a generated run is deterministic", async () => {
