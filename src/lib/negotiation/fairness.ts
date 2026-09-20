@@ -518,6 +518,44 @@ function singularize(token: string): string {
 }
 
 /**
+ * Long words that are not the thing anybody wanted.
+ *
+ * `headToken` picks the longest word, which works because in "a beach resort
+ * with a pool" the long word is the noun. It breaks on the placeholders, which
+ * are long and mean nothing: a judges' round produced "gave up the somewhere"
+ * from "somewhere worth dressing up for" and "gave up the nothing" from
+ * "nothing too loud". They are excluded rather than special-cased downstream,
+ * because the failure is that they were chosen, not how they were printed.
+ */
+const NOT_A_NOUN = new Set([
+  // `stem` only strips plural endings, so these are the words as typed.
+  "somewhere",
+  "someplace",
+  "anywhere",
+  "everywhere",
+  "nowhere",
+  "nothing",
+  "everything",
+  "whatever",
+  "wherever",
+  "whenever",
+  "somebody",
+  "everybody",
+  "anybody",
+  "nobody",
+  "people",
+  "actually",
+  "basically",
+  "honestly",
+  "probably",
+  "proper",
+  "properly",
+  "decent",
+  "reasonable",
+  "reasonably",
+]);
+
+/**
  * The most concrete word in a short want.
  *
  * Heuristic: the longest significant token, earliest wins ties. In the phrases
@@ -527,7 +565,9 @@ function singularize(token: string): string {
  * often enough to print.
  */
 function headToken(want: string): string | null {
-  const tokens = significantTokens(want).filter((token) => !/^\d/.test(token));
+  const tokens = significantTokens(want).filter(
+    (token) => !/^\d/.test(token) && !NOT_A_NOUN.has(token),
+  );
   let best: string | null = null;
   for (const token of tokens) {
     if (best === null || token.length > best.length) best = token;
@@ -536,16 +576,53 @@ function headToken(want: string): string | null {
 }
 
 /**
- * The one line under a fairness bar. Never contains a figure: the bar is shown
- * on the shared plan screen, so "gave up staying under budget" is sayable and
- * "gave up their $600 ceiling" would undo the entire product in one label.
+ * The want itself, short enough to sit under a bar.
+ *
+ * The fallback when no word in it is a noun worth naming. Printing the phrase
+ * beats printing "ground on the plan": "gave up somewhere worth dressing up
+ * for" is what the person actually lost, and they are the only one reading it.
+ */
+function shortWant(want: string): string | null {
+  const words = want.trim().replace(/\s+/g, " ").split(" ").slice(0, 6);
+  const phrase = words.join(" ").replace(/[.,;:]+$/, "");
+  if (phrase.length === 0) return null;
+  return `${phrase.charAt(0).toLowerCase()}${phrase.slice(1)}`;
+}
+
+/**
+ * Never contains a figure: the bar is shown on the shared plan screen, so
+ * "gave up staying under budget" is sayable and "gave up their $600 ceiling"
+ * would undo the entire product in one label.
+ */
+/** "no flights before 8am", "nothing too loud": a want phrased as a refusal. */
+const NEGATED = /^(?:no|not|nothing|never|without|avoid)\b/i;
+
+/**
+ * The one line under a fairness bar. Never contains a figure.
+ *
+ * A want people stated positively is printed as they stated it, trimmed to a
+ * caption. Naming the single longest word in it was the old approach and it
+ * produced "gave up the dressing" out of "somewhere worth dressing up for" and
+ * "gave up the enough" out of "somewhere quiet enough to talk" — the heuristic
+ * is sound for picking a noun to *match* on, which is what it was written for,
+ * and wrong for picking one to print.
+ *
+ * A want phrased as a refusal cannot be printed that way: "gave up no flights
+ * before 8am" says the opposite of what happened. Those keep the one-word form
+ * and are named as the limit they were.
  */
 function gaveUpClause(want: ScoredWant): string {
   if (want.isBudget) return "gave up staying under budget";
+
+  if (want.isLimit || NEGATED.test(want.text.trim())) {
+    const head = headToken(want.text);
+    return head ? `gave up the ${singularize(head)} limit` : "gave up a hard no";
+  }
+
+  const phrase = shortWant(want.text);
+  if (phrase) return `gave up ${phrase}`;
   const head = headToken(want.text);
-  if (!head) return "gave up ground on the plan";
-  if (want.isLimit) return `gave up the ${singularize(head)} limit`;
-  return `gave up the ${singularize(head)}`;
+  return head ? `gave up the ${singularize(head)}` : "gave up ground on the plan";
 }
 
 /**

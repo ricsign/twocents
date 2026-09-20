@@ -152,7 +152,7 @@ const SEEDED_TRANSCRIPT: readonly string[] = [
   "jordan|agrees|Catamaran’s in. Book it.",
   "priya|agrees|Still a yes. Everyone gets a beach day and nobody’s up at four in the morning.",
   "plan|offer-puerto-rico|offer-tulum|2160|Beach every day / Catamaran day kept / Nothing leaves before 11am / No passports needed|Tulum came in at $690 and every flight left at 6am.",
-  "fair|maya:4/5:gave up the hotel jordan:4/5:gave up the nightlife sam:3/5:gave up the resort priya:5/5:-|true"
+  "fair|maya:4/5:gave up a hotel with a pool jordan:4/5:gave up nightlife within walking distance sam:3/5:gave up a resort on the beach priya:5/5:-|true"
 ];
 
 /* -------------------------------------------------------------------------- */
