@@ -50,6 +50,16 @@ const requestSchema = z.object({
   participantId: participantIdSchema,
   /** Which room. Omitted falls back to this browser's cookie, then the demo. */
   sessionId: z.string().optional(),
+  /**
+   * Which seat this browser is speaking as.
+   *
+   * Sent because a cookie jar belongs to a browser and a room can have two of
+   * its people in two tabs of one browser. Without it this route resolved the
+   * seat from the jar, decided the second tab was the first tab, and answered
+   * 403 — which the briefing screen turns into a canned line, so an agent that
+   * was never asked anything appeared to answer.
+   */
+  viewer: participantIdSchema.optional(),
   /** The whole conversation so far, newest last, including the human's new line. */
   messages: z.array(briefMessageSchema).min(1),
   /** What the panel currently shows, so extraction refines instead of guessing. */
@@ -133,6 +143,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   const { sessionId, seat, joined } = await roomFromRequest(request, {
     sessionId: parsed.data.sessionId,
+    viewer: parsed.data.viewer,
   });
   const session = resolveSession(sessionId);
   if (!session) {
@@ -144,9 +155,11 @@ export async function POST(request: Request): Promise<NextResponse> {
   // anywhere, because a brief is where the private ceiling is written — and
   // the two screens that carry a brief are the only ones that ever see one.
   //
-  // Gated on `joined` so a solo run is untouched: with no cookie there is no
-  // claim to check against, `viewer` has always been self-asserted, and the
-  // scripted demo briefs `maya` from a browser that never joined anything.
+  // The seat is self-asserted, exactly as `?viewer=` has always been on
+  // `/api/session`: the room code is the credential here, and anybody holding
+  // it can already claim any free seat. What this still catches is the thing
+  // it was added for — a caller declaring one identity and writing another
+  // person's row.
   if (joined && participantId !== seat) {
     return NextResponse.json(
       { error: `${seat} may only brief their own agent, not ${participantId}.` },

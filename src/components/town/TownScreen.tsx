@@ -58,7 +58,7 @@ export function TownScreen({
    */
   canRun?: boolean;
 }) {
-  const negotiation = useNegotiation({ sessionId, finished });
+  const negotiation = useNegotiation({ sessionId, viewer: you, finished });
   const { start, status } = negotiation;
 
   // Depends on the boolean rather than the object: a server render hands over
@@ -72,7 +72,7 @@ export function TownScreen({
   }, [alreadyRun, canRun, start]);
 
   // Only polls when this browser is not the one running the stream.
-  const watched = useRoomTurns(canRun ? null : (sessionId ?? ""));
+  const watched = useRoomTurns(canRun ? null : (sessionId ?? ""), you);
 
   const paused = status === "paused";
   const turns = canRun ? negotiation.turns : watched.turns;

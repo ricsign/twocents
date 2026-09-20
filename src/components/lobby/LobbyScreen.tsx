@@ -46,7 +46,12 @@ export function LobbyScreen({
 
     async function poll(): Promise<void> {
       try {
-        const response = await fetch("/api/session", { cache: "no-store" });
+        const params = new URLSearchParams();
+        if (url?.room) params.set("sessionId", url.room);
+        if (url?.seat) params.set("viewer", url.seat);
+        const response = await fetch(`/api/session${params.toString() ? `?${params}` : ""}`, {
+          cache: "no-store",
+        });
         if (response.ok) {
           const parsed = sessionViewSchema.safeParse(await response.json());
           if (parsed.success && !stopped) setView(parsed.data);
@@ -70,7 +75,7 @@ export function LobbyScreen({
       stopped = true;
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, []);
+  }, [url?.room, url?.seat]);
 
   /**
    * The host started it. Everybody follows.

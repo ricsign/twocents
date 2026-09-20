@@ -140,6 +140,9 @@ export function BriefScreen({
         body: JSON.stringify({
           participantId,
           sessionId,
+          // The seat this tab is, which is not necessarily the seat the
+          // cookie remembers — two people in one browser are two tabs.
+          viewer: participantId,
           messages: forWire(next),
           brief,
         }),

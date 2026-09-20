@@ -17,13 +17,15 @@
  * they keep is every line, every offer, their own private reasons, and the plan
  * the moment it lands.
  *
- * Reads `GET /api/session` with no parameters, so the narrowing is the same one
- * every other screen goes through and a watcher sees exactly what they would
- * have seen on their own stream.
+ * Reads `GET /api/session`, naming the room and the seat, so the narrowing is
+ * the same one every other screen goes through and a watcher sees exactly what
+ * they would have seen on their own stream — their own private reasons, and
+ * nobody else's.
  */
 
 import { useEffect, useState } from "react";
 import { sessionViewSchema } from "@/lib/session-view";
+import type { ParticipantId } from "@/lib/characters";
 import type { NegotiationTurn } from "@/lib/types";
 
 /** Fast enough to read as live, slow enough that four phones are nothing. */
@@ -42,7 +44,10 @@ export interface WatchedRoom {
  * Null rather than a separate hook call so the caller can switch between
  * running and watching without breaking the rules of hooks.
  */
-export function useRoomTurns(sessionId: string | null): WatchedRoom {
+export function useRoomTurns(
+  sessionId: string | null,
+  viewer?: ParticipantId,
+): WatchedRoom {
   const [room, setRoom] = useState<WatchedRoom>({ turns: [], hasPlan: false, live: false });
 
   useEffect(() => {
@@ -53,7 +58,13 @@ export function useRoomTurns(sessionId: string | null): WatchedRoom {
 
     async function read(): Promise<void> {
       try {
-        const query = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : "";
+        // Named rather than left to the jar: the transcript is narrowed per
+        // viewer, so a second tab resolving to the first tab's seat would be
+        // handed somebody else's private reasons.
+        const params = new URLSearchParams();
+        if (sessionId) params.set("sessionId", sessionId);
+        if (viewer) params.set("viewer", viewer);
+        const query = params.toString() ? `?${params}` : "";
         const response = await fetch(`/api/session${query}`, { cache: "no-store" });
         if (!response.ok) return;
         const parsed = sessionViewSchema.safeParse(await response.json());
@@ -80,7 +91,7 @@ export function useRoomTurns(sessionId: string | null): WatchedRoom {
       stopped = true;
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [sessionId]);
+  }, [sessionId, viewer]);
 
   return room;
 }

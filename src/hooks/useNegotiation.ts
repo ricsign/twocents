@@ -91,6 +91,14 @@ export interface NegotiationOptions {
    * `"demo"` and four people in a room would watch the scripted grad trip.
    */
   sessionId?: string;
+  /**
+   * Which seat this browser streams as.
+   *
+   * Every frame is narrowed to it — this viewer's own private reasons, and at
+   * the end their own report and nobody else's. Named rather than left to the
+   * cookie, because two people in one browser are two tabs sharing one jar.
+   */
+  viewer?: ParticipantId;
   /** The stored run to open on, or null to open empty and wait for `start`. */
   finished?: FinishedRun | null;
 }
@@ -334,6 +342,7 @@ function reduce(
 
 export function useNegotiation({
   sessionId,
+  viewer,
   finished = null,
 }: NegotiationOptions = {}): Negotiation {
   const router = useRouter();
@@ -408,6 +417,7 @@ export function useNegotiation({
           // should not depend on a jar it cannot see.
           body: JSON.stringify({
             ...(sessionId ? { sessionId } : {}),
+            ...(viewer ? { viewer } : {}),
             speed: runSpeed,
           }),
           signal: controller.signal,
@@ -463,7 +473,7 @@ export function useNegotiation({
         setStatus("error");
       }
     },
-    [enqueue, sessionId],
+    [enqueue, sessionId, viewer],
   );
 
   /* ---- Run control -------------------------------------------------------- */

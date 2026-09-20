@@ -100,12 +100,12 @@ export default function TitleScreen() {
           CREATE A ROOM
         </Link>
 
-        <Link
+        {/* <Link
           href="/brief"
           className="disp px-press inline-flex h-11 items-center justify-center border-[3px] border-ink bg-card px-6 text-[9px] text-ink no-underline"
         >
           OR TRY IT ALONE
-        </Link>
+        </Link> */}
       </div>
 
       <p className="max-w-[540px] text-center text-[15px] font-semibold text-bark">
