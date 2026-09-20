@@ -161,11 +161,11 @@ export function StartScreen() {
         seats: prev.seats.map((current, i) =>
           i === index
             ? {
-                ...current,
-                name: person.displayName,
-                want: "",
-                draft: { source: "photo", handle: person.handle, confidence: "unsure" },
-              }
+              ...current,
+              name: person.displayName,
+              want: "",
+              draft: { source: "photo", handle: person.handle, confidence: "unsure" },
+            }
             : current,
         ),
         dropped: prev.dropped.map((d) => (d.handle === person.handle ? outgoing : d)),
@@ -254,9 +254,8 @@ function Picker({
           setDragging(false);
           if (!reading) onPick(event.dataTransfer.files);
         }}
-        className={`flex cursor-pointer flex-col items-center gap-3 border-[3px] border-dashed p-8 text-center transition-colors ${
-          dragging ? "border-sky bg-paper" : "border-ink bg-card"
-        } ${reading || images.length >= MAX_IMAGES ? "cursor-default opacity-60" : ""}`}
+        className={`flex cursor-pointer flex-col items-center gap-3 border-[3px] border-dashed p-8 text-center transition-colors ${dragging ? "border-sky bg-paper" : "border-ink bg-card"
+          } ${reading || images.length >= MAX_IMAGES ? "cursor-default opacity-60" : ""}`}
       >
         <input
           ref={fileRef}
@@ -309,10 +308,8 @@ function Picker({
         <p className="m-0 flex items-start gap-2 text-[12px] leading-relaxed text-bark">
           <span className="mt-[3px] shrink-0"><LockIcon size={12} /></span>
           <span>
-            Your screenshot goes to Anthropic to read who is in the chat and what they
-            asked for. We keep the text, not the picture — the image is never saved, and
-            nobody&rsquo;s budget comes out of it. That number is still only ever between a
-            person and their own agent.
+            TwoCents reads your screenshot to see who is in the chat and what they asked for.
+            Brief your own agent more later in a chat to give it more context.
           </span>
         </p>
       </div>
@@ -467,9 +464,8 @@ function SeatDraft({
 
   return (
     <section
-      className={`flex min-w-0 flex-col gap-3 border-[3px] bg-card p-4 ${
-        unsure ? "border-dashed border-bark" : "border-ink"
-      }`}
+      className={`flex min-w-0 flex-col gap-3 border-[3px] bg-card p-4 ${unsure ? "border-dashed border-bark" : "border-ink"
+        }`}
     >
       <header className="flex items-center gap-3">
         <Avatar id={id} size={40} className="shrink-0" names={{ [id]: seat.name }} />

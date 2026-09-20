@@ -24,7 +24,7 @@ import assert from "node:assert/strict";
 import { PARTICIPANT_IDS } from "@/lib/characters";
 import { hasBriefed } from "@/lib/flow";
 import { normalizeRoomCode, newRoomCode } from "@/lib/room/codes";
-import { withIdentity } from "@/lib/room/links";
+import { seatFromToken, seatToken, withIdentity } from "@/lib/room/links";
 import { seedRoom, splurgyFor, transcriptFor } from "@/lib/room/seed";
 import type { SeatBrief } from "@/lib/room/seat";
 import { seatsFrom } from "@/lib/ingest/seats";
@@ -88,21 +88,42 @@ check("the sanitiser that names the file cannot collapse two codes into one", ()
   }
 });
 
-check("a link carries an identity only when one was explicitly named", () => {
-  // The rule that keeps the four-phone case untouched: somebody who joined
-  // normally relies on their cookie and keeps clean, shareable URLs.
+check("a seat is numbered in a URL, never named", () => {
+  // `maya` and `jordan` are sprite keys. Showing one to somebody the screen
+  // calls Player 2 names a person who is not in this room.
+  assert.equal(seatToken("maya"), "p1");
+  assert.equal(seatToken("jordan"), "p2");
+  assert.equal(seatToken("sam"), "p3");
+  assert.equal(seatToken("priya"), "p4");
+
+  for (const id of PARTICIPANT_IDS) {
+    assert.equal(seatFromToken(seatToken(id)), id, `${id} does not round-trip`);
+  }
+
+  // The documented `?viewer=sam` form is part of this app's HTTP surface, so
+  // a curl written against it has to keep working.
+  assert.equal(seatFromToken("sam"), "sam");
+  assert.equal(seatFromToken("P2"), "jordan");
+
+  for (const junk of ["", "p0", "p5", "p", "player2", "../maya", undefined, null]) {
+    assert.equal(seatFromToken(junk), null, `expected ${JSON.stringify(junk)} rejected`);
+  }
+});
+
+check("a link carries the identity whenever there is a room to be in", () => {
+  // Nothing to name in a solo run, so those URLs stay clean.
   assert.equal(withIdentity("/brief"), "/brief");
   assert.equal(withIdentity("/brief", {}), "/brief");
   assert.equal(withIdentity("/brief", { seat: null, room: null }), "/brief");
 
-  // And the escape hatch that makes one browser able to hold two identities:
-  // a jar belongs to a browser, a URL belongs to a tab.
-  assert.equal(withIdentity("/brief", { seat: "maya" }), "/brief?seat=maya");
+  // In a room it is always there, because demoing is several links open in
+  // one browser and a seat that lives only in the jar is invisible.
+  assert.equal(withIdentity("/brief", { seat: "maya" }), "/brief?seat=p1");
   assert.equal(
     withIdentity("/lobby", { room: "MJ4K7P", seat: "jordan" }),
-    "/lobby?room=MJ4K7P&seat=jordan",
+    "/lobby?room=MJ4K7P&seat=p2",
   );
-  assert.equal(withIdentity("/x?v=1", { seat: "sam" }), "/x?v=1&seat=sam");
+  assert.equal(withIdentity("/x?v=1", { seat: "sam" }), "/x?v=1&seat=p3");
 });
 
 /* -------------------------------------------------------------------------- */

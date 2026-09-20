@@ -32,8 +32,8 @@ import type { NextResponse } from "next/server";
 import { YOU, type ParticipantId } from "@/lib/characters";
 import { normalizeRoomCode } from "@/lib/room/codes";
 import { DEFAULT_SESSION_ID, getOrCreateDefault, getSession } from "@/lib/session";
-import type { UrlIdentity } from "@/lib/room/links";
-import { participantIdSchema, type DemoSession } from "@/lib/types";
+import { seatFromToken, type UrlIdentity } from "@/lib/room/links";
+import type { DemoSession } from "@/lib/types";
 
 /** Which room this browser last joined. */
 export const ROOM_COOKIE = "twocents_room";
@@ -91,14 +91,18 @@ export async function currentRoom(
   const asked = await searchParams;
   const room = normalizeRoomCode(one(asked.room)) ?? fromJar.sessionId;
   const seat = seatOf(one(asked.seat)) ?? fromJar.seat;
-  const named = Boolean(one(asked.room)) || Boolean(one(asked.seat));
+  const inRoom = room !== DEFAULT_SESSION_ID;
 
   return {
     sessionId: room,
     seat,
-    joined: fromJar.joined || (named && room !== DEFAULT_SESSION_ID),
-    /** What to put back into the next link, so the tab keeps its identity. */
-    url: named ? { room: one(asked.room) ?? null, seat: seatOf(one(asked.seat)) } : {},
+    joined: fromJar.joined || inRoom,
+    // Carried on every link once there is a room to be in, rather than only
+    // when the URL happened to name one. Demoing is several links open in one
+    // browser, and a seat that is only in the jar is invisible — two tabs look
+    // identical in the address bar right up until one of them turns out to be
+    // the other person. A solo run stays clean: there is no room to name.
+    url: inRoom ? { room, seat } : {},
   };
 }
 
@@ -149,10 +153,14 @@ function identityFrom(rawRoom: string | undefined, rawSeat: string | undefined):
   return { sessionId: room, seat, joined: true };
 }
 
-/** A seat id, or null for anything that is not one of the four. */
+/**
+ * A seat id, from either form: the public `p1`-`p4` token or the raw id.
+ *
+ * Links are written with the token, and `?viewer=sam` remains a documented
+ * part of this route surface, so both have to resolve.
+ */
 export function seatOf(raw: string | undefined | null): ParticipantId | null {
-  const parsed = participantIdSchema.safeParse(raw?.trim());
-  return parsed.success ? parsed.data : null;
+  return seatFromToken(raw);
 }
 
 /* -------------------------------------------------------------------------- */
