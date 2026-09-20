@@ -300,7 +300,7 @@ check("sam's view contains maya's public wants but not her number", () => {
   const view = sessionViewFor(SESSION, "sam");
   const maya = view.others.find((o) => o.participantId === "maya");
   assert.ok(maya, "maya should appear as one of the others");
-  assert.equal(maya.name, "Maya");
+  assert.equal(maya.name, "Will");
   assert.ok(maya.mandate.wants.includes("A beach every day"));
   assert.equal(wire("sam").includes("600"), false);
 });

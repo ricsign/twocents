@@ -210,7 +210,7 @@ function voicePreview(req: CompletionRequest): string {
 /* 3. Offers and the negotiation script                                        */
 /* -------------------------------------------------------------------------- */
 
-/** Sam's opener: the plan that loses, kept in full so the transcript reads real. */
+/** Richard's opener: the plan that loses, kept in full so the transcript reads real. */
 const CANCUN_OFFER = {
   id: "offer-cancun",
   destination: "Cancun",
@@ -468,7 +468,7 @@ const FINAL_PLAN = {
 } as const;
 
 /**
- * One private debrief per person, matching `design/04-plan.clean.html`. Maya's
+ * One private debrief per person, matching `design/04-plan.clean.html`. Will's
  * is the one the demo reads out loud, so it names the saving without ever
  * having said the ceiling in the room.
  */
@@ -477,15 +477,15 @@ const REPORTS: Record<ParticipantId, Record<string, unknown>> = {
     participantId: "maya",
     gotYou: "$540 a head, $60 under your number. Nothing before 11am. A beach every day.",
     tradedAway:
-      "The nicer hotel. Sam wanted the resort; you get a clean 3-star two blocks from the water.",
-    why: "Jordan’s agent wouldn’t budge on the catamaran, so I gave up the hotel to protect your budget. Nobody heard your number.",
+      "The nicer hotel. Richard wanted the resort; you get a clean 3-star two blocks from the water.",
+    why: "Angela’s agent wouldn’t budge on the catamaran, so I gave up the hotel to protect your budget. Nobody heard your number.",
     secretsKept: ["$600 budget"],
   },
   jordan: {
     participantId: "jordan",
     gotYou: "The catamaran day, in writing, and a flight nobody has to set an alarm for.",
     tradedAway: "Cancun. You wanted the strip; this is quieter and $640 cheaper.",
-    why: "Sam’s agent traded the resort to keep the boat day, so I spent that goodwill on the one thing you said you’d be annoyed to lose.",
+    why: "Richard’s agent traded the resort to keep the boat day, so I spent that goodwill on the one thing you said you’d be annoyed to lose.",
     secretsKept: [],
   },
   sam: {
@@ -499,7 +499,7 @@ const REPORTS: Record<ParticipantId, Record<string, unknown>> = {
     participantId: "priya",
     gotYou: "No passport, no early flight, and a day out on Culebra. Everything you asked for.",
     tradedAway: "Nothing. You came in the cheapest to satisfy and it cost you no ground.",
-    why: "Puerto Rico cleared your no-passport rule on its own, so I spent my turns backing Maya’s number instead of arguing for you.",
+    why: "Puerto Rico cleared your no-passport rule on its own, so I spent my turns backing Will’s number instead of arguing for you.",
     secretsKept: [],
   },
 };
@@ -514,7 +514,7 @@ function reportFor(req: CompletionRequest): Record<string, unknown> {
 
 /**
  * Rebuilds a `Brief`-shaped object from whatever the caller put in `context`,
- * falling back to Maya's briefing from `design/01-brief.clean.html`. The
+ * falling back to Will's briefing from `design/01-brief.clean.html`. The
  * transcript is scanned for a dollar figure so an offline run of a *live*
  * briefing still captures the number the human actually typed.
  */
