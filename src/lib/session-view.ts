@@ -225,9 +225,10 @@ export function sessionViewFor(
  *
  * `sessionViewFor`'s sibling, and deliberately the same shape of promise: pure,
  * total, and the only thing between `runNegotiation` and a browser. Two of the
- * six frame types carry something private and both are handled by name; every
- * other frame is returned by reference, so a `round`, `thinking`, `offer` or
- * `agreed` event is provably the object the engine produced.
+ * seven frame types carry something private and both are handled by name;
+ * every other frame is returned by reference, so a `round`, `thinking`,
+ * `offer`, `offer-checked` or `agreed` event is provably the object the engine
+ * produced.
  *
  * - **`speak`** keeps `privateReasonKept` only for the person whose agent said
  *   it. It names the real reason — "protecting a $600 ceiling" — and the room
@@ -241,6 +242,15 @@ export function sessionViewFor(
  *
  * A viewer the run has no report for gets an empty map rather than a missing
  * field, so the frame still parses as a `NegotiationEvent` on the way in.
+ *
+ * `offer-checked` is returned untouched, and that was checked rather than
+ * assumed. It carries an offer id, an `OfferFeasibility` and the sentence the
+ * transcript prints under the card. All three are about an option that was
+ * said out loud: the offer was already sent to every viewer on its own frame,
+ * the verdict is what a stranger with a search engine would find about that
+ * same trip, and the desk that produced it is handed an `Offer` and never a
+ * `Brief`. Narrowing it would hide from one person the price check the other
+ * three can read on the same card.
  *
  * `agreed` carries a `FairnessReport` and is still returned untouched. That was
  * checked rather than assumed: a fairness row is a participant id, two counts
@@ -263,9 +273,9 @@ export function eventForViewer(
     }
 
     default:
-      // round, thinking, offer, agreed: public by construction. Returned
-      // untouched so the narrowing cannot quietly reshape a frame it has no
-      // business editing.
+      // round, thinking, offer, offer-checked, agreed: public by
+      // construction. Returned untouched so the narrowing cannot quietly
+      // reshape a frame it has no business editing.
       return event;
   }
 }

@@ -4,16 +4,19 @@
  * An agent that can invent "Tokyo, 6 nights, $700 a person" is negotiating
  * about nothing, and a judge who knows what a flight to Tokyo costs can see it
  * from the back of the room. So every offer that hits the table is checked
- * against the live web before anyone argues with it, and the verdict goes into
- * the transcript the other agents read — which is what turns it from a garnish
- * into part of the negotiation, since "that price isn't real" is a thing an
- * agent can now push back with.
+ * against the live web, and the verdict goes into the transcript the other
+ * agents read — which is what turns it from a garnish into part of the
+ * negotiation, since "that price isn't real" is a thing an agent can now push
+ * back with.
  *
  * Two properties carried over from the rest of the engine:
  *
- * - **It cannot stall the room.** The check is one call with its own deadline,
- *   already inherited from the provider, and a failure returns canned facts
- *   rather than propagating.
+ * - **It cannot stall the room.** The engine starts this call when the offer
+ *   is drafted and yields the offer without waiting for it; the verdict
+ *   arrives on the card as an `offer-checked` frame, and the outstanding
+ *   checks are joined once at the end of the round, before anybody converges
+ *   on anything. The deadline below bounds that join, and a failure returns
+ *   canned facts rather than propagating.
  * - **It says nothing private.** It sees an `Offer`, which is public by
  *   construction — it was just spoken aloud — and never a `Brief`.
  *
@@ -30,8 +33,37 @@
 import type { CompletionRequest } from "@/lib/llm/provider";
 import type { NegotiationSourced, Offer, OfferFeasibility } from "@/lib/types";
 
-/** How many searches one offer is worth. Two: a flight price and a bed price. */
-const MAX_SEARCHES_PER_OFFER = 2;
+/**
+ * How many searches one offer is worth.
+ *
+ * One, not two. The desk was given two — a flight price and a bed price — but
+ * that is not the question it is actually asked: rule 2 below only lets it
+ * answer "not bookable" when the price is off by roughly a third, and rule 3
+ * tells it to leave an option it could not price bookable. An all-in figure
+ * for a destination and a length of stay settles both of those, and a second
+ * search buys precision on `realisticPerPerson`, a field the desk is already
+ * allowed to return null. Each search is a server-side round trip of seconds
+ * that the room used to sit through, so the second one was the most expensive
+ * nicety in the product.
+ */
+const MAX_SEARCHES_PER_OFFER = 1;
+
+/**
+ * How long one check may take before the room stops caring.
+ *
+ * Its own ceiling rather than the shared `llmTimeoutMs()` (20s), which is
+ * sized for a two-sentence turn somebody is waiting on. This call is not
+ * waited on any more — the engine starts it when the offer is drafted and
+ * joins the outstanding checks once, at the end of the round — but the join is
+ * still a wall the whole run hits, and 20s of it is 20s the plan screen does
+ * not appear.
+ *
+ * Ten seconds is one search plus the emit with room to spare, and the penalty
+ * for missing it is `UNCHECKED`, which the transcript already renders honestly
+ * as "Not checked against live prices." A verdict that arrives after the room
+ * has moved on is worth less than the time it cost to wait for it.
+ */
+const CHECK_TIMEOUT_MS = 10_000;
 
 /**
  * The verdict is four short fields, but this ceiling is not sized for the
@@ -129,6 +161,7 @@ export function buildFeasibilityRequest(offer: Offer): CompletionRequest {
     messages: [{ role: "user", content: user }],
     maxTokens: CHECK_MAX_TOKENS,
     webSearch: { maxUses: MAX_SEARCHES_PER_OFFER },
+    timeoutMs: CHECK_TIMEOUT_MS,
     context: {
       destination: offer.destination,
       perPerson: offer.perPerson,

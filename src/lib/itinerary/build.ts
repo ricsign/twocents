@@ -38,6 +38,7 @@ import { cannedItinerary, tripFromOffer } from "@/lib/itinerary/canned";
 import {
   ITINERARY_MAX_SEARCHES,
   ITINERARY_MAX_TOKENS,
+  ITINERARY_REPAIR_MAX_TOKENS,
   ITINERARY_REPAIR_SYSTEM_PROMPT,
   ITINERARY_SYSTEM_PROMPT,
   buildItineraryRepairPrompt,
@@ -282,6 +283,7 @@ async function verifySchedule(
 
   let current = draft;
   if (canRepair) {
+    const startedAt = Date.now();
     try {
       const repaired = await provider.json(
         {
@@ -298,18 +300,25 @@ async function verifySchedule(
               ),
             },
           ],
-          maxTokens: ITINERARY_MAX_TOKENS,
-          webSearch: { maxUses: ITINERARY_MAX_SEARCHES },
+          maxTokens: ITINERARY_REPAIR_MAX_TOKENS,
+          // No `webSearch`. Every problem this pass is handed is a comparison
+          // between fields already in the draft — an item's own posted hours,
+          // or the flight times above it — so the second call is re-timing
+          // what the first one found rather than discovering anything. The
+          // searches were pure latency on the slowest screen in the product.
           timeoutMs: itineraryTimeoutMs(),
           context: { ...tripFromOffer(plan.offer), dates: plan.offer.dates },
         },
         itineraryDraftSchema,
       );
+      console.info(`[itinerary] repair pass in ${Date.now() - startedAt}ms`);
       // A repair that came back empty is not a repair. Keep the original.
       if (repaired.value.days.length > 0) current = repaired.value;
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
-      console.warn(`[itinerary] the repair pass failed, keeping the draft: ${detail}`);
+      console.warn(
+        `[itinerary] the repair pass failed after ${Date.now() - startedAt}ms, keeping the draft: ${detail}`,
+      );
     }
   }
 
@@ -360,8 +369,25 @@ export async function buildItinerary(
     context: { ...tripFromOffer(plan.offer), dates: plan.offer.dates },
   };
 
+  // The three numbers behind "BUILDING YOUR ITINERARY", measured rather than
+  // guessed at: the model call, the schedule check and its one repair, and the
+  // link and photo fetches. Which of the three is the wait is not something
+  // anybody can tell by watching the bar, and every tuning decision in this
+  // file and in `prompt.ts` is an argument about one of them.
+  const startedAt = Date.now();
+  let modelMs = 0;
+  let scheduleMs = 0;
+
+  const report = (outcome: string): void => {
+    const total = Date.now() - startedAt;
+    console.info(
+      `[itinerary] ${outcome} in ${total}ms: ${modelMs}ms model, ${scheduleMs}ms schedule check, ${total - modelMs - scheduleMs}ms links and photos`,
+    );
+  };
+
   try {
     const result = await provider.json(request, itineraryDraftSchema);
+    modelMs = Date.now() - startedAt;
     if (result.value.days.length === 0) throw new Error("itinerary came back with no days");
     // `provider.live` says a key is set, not that the model answered *this*
     // call: `ResilientProvider` catches a timeout and quietly hands back the
@@ -371,6 +397,7 @@ export async function buildItinerary(
     const answered = result.usage.inputTokens > 0 || result.usage.outputTokens > 0;
     const live = provider.live && answered;
 
+    const checkedAt = Date.now();
     const verified = await verifySchedule(
       result.value,
       plan,
@@ -378,7 +405,11 @@ export async function buildItinerary(
       PARTICIPANT_IDS.length,
       live,
     );
-    return await assemble(verified.draft, plan, live, verified.checks);
+    scheduleMs = Date.now() - checkedAt;
+
+    const built = await assemble(verified.draft, plan, live, verified.checks);
+    report(live ? "built live" : "built from the canned days");
+    return built;
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     console.warn(`[itinerary] falling back to the canned days: ${detail}`);
@@ -386,7 +417,12 @@ export async function buildItinerary(
     // and the flight-time promise is exactly the thing it could get wrong —
     // but there is nothing to repair it with, so it is checked and cleaned only.
     const canned = cannedItinerary(tripFromOffer(plan.offer));
+    const checkedAt = Date.now();
     const verified = await verifySchedule(canned, plan, provider, PARTICIPANT_IDS.length, false);
-    return assemble(verified.draft, plan, false, verified.checks);
+    scheduleMs = Date.now() - checkedAt;
+
+    const built = await assemble(verified.draft, plan, false, verified.checks);
+    report("fell back to the canned days");
+    return built;
   }
 }

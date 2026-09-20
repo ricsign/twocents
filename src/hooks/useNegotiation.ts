@@ -248,9 +248,6 @@ function reduce(
         kind: event.kind,
         text: event.text,
         ...privately,
-        // Carried onto the turn so the transcript can print the search behind
-        // the line and link to the pages it opened.
-        ...(event.sourced ? { sourced: event.sourced } : {}),
       };
       const bubble: Bubble = {
         id,
@@ -287,6 +284,28 @@ function reduce(
         turns,
         offers: seen ? state.offers : [...state.offers, event.offer],
       };
+    }
+
+    case "offer-checked": {
+      // A patch, never a new row. The offer card was drawn the moment the
+      // agent proposed, without waiting for the price check; this is the
+      // verdict arriving to fill in the "checked · …" line under it and the
+      // search receipt beside it. The turn and the offer both carry it: the
+      // transcript reads the turn, the town's leading-offer card reads the
+      // offers list.
+      const turns = state.turns.map((turn) => {
+        const offer = turn.offer;
+        if (!offer || offer.id !== event.offerId) return turn;
+        return {
+          ...turn,
+          offer: { ...offer, feasibility: event.feasibility },
+          ...(event.sourced ? { sourced: event.sourced } : {}),
+        };
+      });
+      const offers = state.offers.map((offer) =>
+        offer.id === event.offerId ? { ...offer, feasibility: event.feasibility } : offer,
+      );
+      return { ...state, turns, offers };
     }
 
     case "agreed":

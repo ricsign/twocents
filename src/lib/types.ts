@@ -554,6 +554,10 @@ export const negotiationTurnSchema = z.object({
    * against the live web, and rendered in the transcript as a sentence plus the
    * pages behind it. An agent that says "a quick web search shows" and cannot
    * show you the search is exactly the thing this product is arguing against.
+   *
+   * Written when the check lands rather than when the line is spoken: the
+   * engine does not hold the room for a web search, so this field appears on
+   * a turn that already exists, carried by an `offer-checked` frame.
    */
   sourced: negotiationSourcedSchema.optional(),
 });
@@ -723,14 +727,34 @@ export const negotiationEventSchema = z.discriminatedUnion("type", [
     kind: turnKindSchema,
     text: z.string(),
     privateReasonKept: z.string().optional(),
-    /** The live search behind this line, when there was one. */
-    sourced: negotiationSourcedSchema.optional(),
   }),
   /** A new option hit the table; the UI slides in an offer card. */
   z.object({
     type: z.literal("offer"),
     speaker: participantIdSchema,
     offer: offerSchema,
+  }),
+  /**
+   * The web's verdict on an option that is already on the table.
+   *
+   * A patch, not a new row. The offer frame above is emitted the moment the
+   * agent proposes, without waiting for the price check, because a room that
+   * freezes for the length of two web searches every time somebody names a
+   * number is a room nobody watches. The verdict follows whenever it lands and
+   * the card it belongs to fills in — which is why this carries an `offerId`
+   * rather than a speaker: the consumer's job is to find that offer and patch
+   * it, not to append anything.
+   *
+   * `sourced` is the same sentence-plus-links block a turn carries, built here
+   * so the transcript row and the card cannot come apart; absent when the
+   * check opened no pages, which is what stops an unchecked offer from
+   * claiming a search.
+   */
+  z.object({
+    type: z.literal("offer-checked"),
+    offerId: z.string(),
+    feasibility: offerFeasibilitySchema,
+    sourced: negotiationSourcedSchema.optional(),
   }),
   /**
    * Consensus. The Town screen starts its transition to the plan.
