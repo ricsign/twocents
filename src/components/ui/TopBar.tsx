@@ -39,6 +39,12 @@ const TODO = "#5A4634";
  * The 12px square is too small to hit on a projector, so each link carries
  * padding it gives straight back with a negative margin — a 20px target that
  * does not move the row.
+ *
+ * The logo goes home, which is the one thing a wordmark in a bar is expected to
+ * do — and the icon and the words are one target rather than two, because
+ * aiming at a 24px coin is not the game. It is the only way out of the flow
+ * that does not depend on the browser's back button: `/` is static, reads no
+ * cookie and no session, so it is reachable from any screen and from any state.
  */
 export function TopBar({
   step,
@@ -49,10 +55,14 @@ export function TopBar({
 }) {
   return (
     <header className="flex h-[60px] shrink-0 items-center justify-between bg-ink px-6 text-parchment sm:px-12">
-      <div className="flex items-center gap-3">
+      <Link
+        href="/"
+        aria-label="twocents.ai — back to the start"
+        className="flex items-center gap-3 text-parchment no-underline"
+      >
         <CoinIcon size={24} />
-        <div className="disp text-[12px]">twocents.ai</div>
-      </div>
+        <span className="disp text-[12px]">twocents.ai</span>
+      </Link>
 
       <div className="head hidden text-[20px] font-semibold sm:block">
         {tripName}
