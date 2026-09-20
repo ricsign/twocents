@@ -30,8 +30,15 @@
  */
 
 import assert from "node:assert/strict";
+import type { z } from "zod";
 import { PARTICIPANT_IDS, type ParticipantId } from "@/lib/characters";
 import { OfflineProvider } from "@/lib/llm/offline";
+import type {
+  CompletionRequest,
+  CompletionResult,
+  LLMProvider,
+  TaskTag,
+} from "@/lib/llm/provider";
 import {
   buildScenario,
   scenarioPlan,
@@ -93,6 +100,67 @@ async function runOffline(session: DemoSession, roundCap?: number): Promise<Nego
 }
 
 /**
+ * The offline provider with a tally on it.
+ *
+ * Two things the events alone cannot say. **When** a call happened: `usage`
+ * only reaches a browser on the `done` frame, so "no plan had been written yet
+ * when the room announced its agreement" needs the count read at the moment
+ * the `agreed` frame is drained. And **how** the calls overlapped: `peak` is
+ * the most that were ever in flight at once, which is what tells four
+ * concurrent reports apart from four sequential ones.
+ *
+ * Wraps rather than reimplements, so every answer is still the canned one and
+ * a run through this provider is the run the checks elsewhere in this file
+ * assert on.
+ */
+class CountingProvider implements LLMProvider {
+  readonly name = "offline-counting";
+  readonly live = false;
+
+  private readonly inner = new OfflineProvider();
+  private readonly counts = new Map<TaskTag, number>();
+  private inFlight = 0;
+
+  /** Every call so far, of any kind. */
+  calls = 0;
+  /** The most calls that were ever outstanding at the same moment. */
+  peak = 0;
+
+  async text(req: CompletionRequest): Promise<CompletionResult<string>> {
+    this.enter(req.tag);
+    try {
+      return await this.inner.text(req);
+    } finally {
+      this.inFlight -= 1;
+    }
+  }
+
+  async json<T>(
+    req: CompletionRequest,
+    schema: z.ZodType<T>,
+  ): Promise<CompletionResult<T>> {
+    this.enter(req.tag);
+    try {
+      return await this.inner.json(req, schema);
+    } finally {
+      this.inFlight -= 1;
+    }
+  }
+
+  /** How many calls of one kind have been made. */
+  made(tag: TaskTag): number {
+    return this.counts.get(tag) ?? 0;
+  }
+
+  private enter(tag: TaskTag): void {
+    this.calls += 1;
+    this.counts.set(tag, this.made(tag) + 1);
+    this.inFlight += 1;
+    if (this.inFlight > this.peak) this.peak = this.inFlight;
+  }
+}
+
+/**
  * The run flattened to one line per event.
  *
  * Compared as strings rather than field by field: a field-by-field check proves
@@ -126,6 +194,16 @@ function flatten(events: readonly NegotiationEvent[]): string[] {
         .map((row) => `${row.participantId}:${row.wantsKept}/${row.wantsTotal}:${row.gaveUp ?? "-"}`)
         .join(" ");
       lines.push(`fair|${rows}|${event.fairness.nobodyOverruled}`);
+      // The written-up plan, which is a different line from the `plan|` one
+      // above: `agreed` now fires the instant the room settles and carries the
+      // offer it settled on, and the prose — runner-up, why it lost, the kept
+      // wants — is written afterwards and arrives here.
+      if (event.plan) {
+        lines.push(
+          `final|${event.plan.offer.id}|${event.plan.runnerUp?.id ?? "-"}|${event.plan.groupTotal}|` +
+            `${event.plan.keptWants.join(" / ")}|${event.plan.runnerUpLostBecause}`,
+        );
+      }
     }
   }
   return lines;
@@ -139,6 +217,13 @@ function flatten(events: readonly NegotiationEvent[]): string[] {
  * Captured from a canned run of `createSeedSession()` before the generator
  * existed. Do not "fix" a line here: if the copy should change, change it in
  * `lib/llm/offline.ts`, check it still matches the design files, and recapture.
+ *
+ * Recaptured once, in PR #24, for the frame order rather than the copy. The
+ * `plan|` line is the `agreed` frame, now emitted the instant the room settles
+ * and carrying the offer it settled on with no write-up on it; the `final|`
+ * line is the same plan as `done` carries it, and it is the one that has to
+ * match the design files. Every spoken line, every offer and the fairness row
+ * are byte for byte what they were.
  */
 const SEEDED_TRANSCRIPT: readonly string[] = [
   "sam|proposes|Cancun, Mar 14–19. $1,180 a person, resort right on the beach. The flight’s 6am, but it’s the cheapest one out.",
@@ -151,8 +236,9 @@ const SEEDED_TRANSCRIPT: readonly string[] = [
   "offer|offer-puerto-rico|540|Beach every day / Catamaran day kept / Nothing leaves before 11am / No passports needed",
   "jordan|agrees|Catamaran’s in. Book it.",
   "priya|agrees|Still a yes. Everyone gets a beach day and nobody’s up at four in the morning.",
-  "plan|offer-puerto-rico|offer-tulum|2160|Beach every day / Catamaran day kept / Nothing leaves before 11am / No passports needed|Tulum came in at $690 and every flight left at 6am.",
-  "fair|maya:4/5:gave up a hotel with a pool jordan:4/5:gave up nightlife within walking distance sam:3/5:gave up a resort on the beach priya:5/5:-|true"
+  "plan|offer-puerto-rico|-|2160|Beach every day / Catamaran day kept / Nothing leaves before 11am / No passports needed|",
+  "fair|maya:4/5:gave up a hotel with a pool jordan:4/5:gave up nightlife within walking distance sam:3/5:gave up a resort on the beach priya:5/5:-|true",
+  "final|offer-puerto-rico|offer-tulum|2160|Beach every day / Catamaran day kept / Nothing leaves before 11am / No passports needed|Tulum came in at $690 and every flight left at 6am."
 ];
 
 /* -------------------------------------------------------------------------- */
@@ -531,17 +617,24 @@ async function main(): Promise<void> {
       return [report.gotYou, report.tradedAway, report.why];
     });
 
+    // The written-up plan, not the provisional one from `agreed`: the prose
+    // fields are what the finalisation call writes, and the frame announcing
+    // the agreement legitimately carries no runner-up and no sentence about
+    // why it lost. The offer underneath is the same one either way.
+    const plan = done.plan;
+    assert.ok(plan, "the run finished without writing the plan up");
+
     // Every string the plan carries to the screen, which is what the plan
     // header and the ticks under it are assembled from.
     const written = [
-      agreed.plan.runnerUpLostBecause,
-      agreed.plan.offer.dates,
-      agreed.plan.offer.destination,
-      agreed.plan.offer.region,
-      agreed.plan.offer.flightNote,
-      agreed.plan.offer.lodgingNote,
-      ...agreed.plan.offer.highlights,
-      ...agreed.plan.keptWants,
+      plan.runnerUpLostBecause,
+      plan.offer.dates,
+      plan.offer.destination,
+      plan.offer.region,
+      plan.offer.flightNote,
+      plan.offer.lodgingNote,
+      ...plan.offer.highlights,
+      ...plan.keptWants,
       ...spoken,
       ...reports,
     ];
@@ -583,6 +676,94 @@ async function main(): Promise<void> {
       assert.equal(tripped, null, `an empty field reached the page (${tripped}): ${text}`);
       assert.ok(text.trim().length > 0, "a generated field came back empty");
     }
+  });
+
+  // The plan used to appear on screen only after the finalisation block had
+  // run: one `final-plan` call and four `agent-report` calls, sequentially, on
+  // the large model. The room visibly settled and then nothing happened for
+  // tens of seconds. The agreement is now announced from what the round loop
+  // already has, and the write-up replaces it when it lands.
+  await check("the agreement is announced before any of it is written up", async () => {
+    const provider = new CountingProvider();
+    let atAgreed: number | null = null;
+    let planCallsAtAgreed = 0;
+    let reportCallsAtAgreed = 0;
+    let agreed: Extract<NegotiationEvent, { type: "agreed" }> | null = null;
+    let done: Extract<NegotiationEvent, { type: "done" }> | null = null;
+
+    for await (const event of runNegotiation({
+      session: scriptedSession("check-early-agree"),
+      provider,
+    })) {
+      if (event.type === "agreed") {
+        agreed = event;
+        atAgreed = provider.calls;
+        planCallsAtAgreed = provider.made("final-plan");
+        reportCallsAtAgreed = provider.made("agent-report");
+      }
+      if (event.type === "done") done = event;
+    }
+
+    assert.ok(agreed, "the room never agreed");
+    assert.ok(done, "the run never finished");
+    assert.ok(atAgreed !== null, "no call count was taken at the agreement");
+
+    // The frame is renderable on its own: `planViewFrom` returns null without
+    // both halves, so a plan with no fairness report is a plan screen that
+    // still shows nothing.
+    assert.equal(
+      agreed.fairness.rows.length,
+      PARTICIPANT_IDS.length,
+      "the agreement went out without a scored fairness meter",
+    );
+
+    assert.equal(planCallsAtAgreed, 0, "the plan was written up before the agreement was announced");
+    assert.equal(reportCallsAtAgreed, 0, "a private report was written before the agreement was announced");
+    assert.ok(
+      atAgreed < done.usage.calls,
+      `the agreement cost as many calls as the whole run (${atAgreed} of ${done.usage.calls})`,
+    );
+
+    // Five: the plan and one report per person. That is the wait the early
+    // frame removes, and it is the number to quote if it ever grows.
+    assert.equal(done.usage.calls - atAgreed, 5, "the finalisation block changed shape");
+
+    // The room settled on one offer, and the write-up is prose about that
+    // offer. A plan screen that is already showing it must not have it
+    // swapped underneath.
+    assert.ok(done.plan, "the terminal frame carried no written-up plan");
+    assert.equal(
+      done.plan.offer.id,
+      agreed.plan.offer.id,
+      "the write-up changed which offer the room agreed to",
+    );
+  });
+
+  // Four independent large-model calls that used to be awaited one at a time.
+  await check("the four private reports are written concurrently", async () => {
+    const provider = new CountingProvider();
+    let done: Extract<NegotiationEvent, { type: "done" }> | null = null;
+
+    for await (const event of runNegotiation({
+      session: scriptedSession("check-concurrent-reports"),
+      provider,
+    })) {
+      if (event.type === "done") done = event;
+    }
+
+    assert.ok(done, "the run never finished");
+    assert.equal(provider.made("agent-report"), PARTICIPANT_IDS.length);
+    assert.equal(
+      provider.peak,
+      PARTICIPANT_IDS.length,
+      `reports ran ${provider.peak} at a time, not ${PARTICIPANT_IDS.length}`,
+    );
+
+    // Concurrency must not cost a report, or a token.
+    for (const participantId of PARTICIPANT_IDS) {
+      assert.ok(done.reports[participantId], `${participantId} got no private report`);
+    }
+    assert.equal(done.usage.calls, provider.calls, "the usage tally lost a call");
   });
 
   await check("a generated run is deterministic", async () => {

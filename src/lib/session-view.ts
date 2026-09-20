@@ -241,6 +241,13 @@ export function sessionViewFor(
  *
  * A viewer the run has no report for gets an empty map rather than a missing
  * field, so the frame still parses as a `NegotiationEvent` on the way in.
+ *
+ * `agreed` carries a `FairnessReport` and is still returned untouched. That was
+ * checked rather than assumed: a fairness row is a participant id, two counts
+ * and the one want they gave up, it names no ceiling, and `sessionViewFor`
+ * already hands the same object to every viewer because the meter is the shared
+ * plan screen's headline. Narrowing it here would hide from one person what the
+ * screen shows all four.
  */
 export function eventForViewer(
   event: NegotiationEvent,

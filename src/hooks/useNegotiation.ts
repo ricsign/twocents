@@ -290,10 +290,15 @@ function reduce(
     }
 
     case "agreed":
+      // The provisional plan: the offer the room settled on, no write-up yet.
+      // It is enough for the SEE THE PLAN link and for `/plan` to render, and
+      // it arrives the moment the room settles rather than five model calls
+      // later.
       return { ...state, plan: event.plan };
 
     case "done":
-      return state;
+      // The written-up version of the same offer, when the run produced one.
+      return event.plan ? { ...state, plan: event.plan } : state;
   }
 }
 

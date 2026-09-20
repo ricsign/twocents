@@ -509,6 +509,20 @@ export async function* runNegotiation(
   let usage: Usage = { ...EMPTY_USAGE };
   let leaksCaught = 0;
 
+  /**
+   * Folds one call's usage into the run's total.
+   *
+   * A helper rather than `usage = sumUsage(usage, …)` written out at each call
+   * site, because the private reports below now run concurrently. The
+   * assignment is one synchronous statement either way, so no count is lost
+   * today — but that is a property of each call site rather than of the
+   * accumulator, and the figure it feeds is the cost the plan screen prints.
+   * One place to read, one place to get wrong.
+   */
+  const addUsage = (delta: Usage): void => {
+    usage = sumUsage(usage, delta);
+  };
+
   const loggedFailures = new Set<string>();
   /** One line per distinct failure. A stage log nobody can read is noise. */
   const logOnce = (tag: string, error: unknown): void => {
@@ -529,13 +543,17 @@ export async function* runNegotiation(
   ): Promise<T | null> => {
     try {
       const result = await provider.json(req, schema);
-      usage = sumUsage(usage, result.usage);
+      addUsage(result.usage);
       return result.value;
     } catch (error) {
       logOnce(req.tag, error);
       if (provider !== offline) {
         // Degrade for the rest of the run rather than retrying a backend that
         // just failed: on stage, the second timeout costs as much as the first.
+        // Safe under the concurrent report calls below: the retry re-reads
+        // `provider` on entry, so a caller that set it and a caller that was
+        // already in flight both end up on the offline provider, and setting
+        // it twice is setting it once.
         provider = offline;
         return runJson(req, schema);
       }
@@ -558,7 +576,7 @@ export async function* runNegotiation(
 
     try {
       const result = await provider.json(request, offerFeasibilitySchema);
-      usage = sumUsage(usage, result.usage);
+      addUsage(result.usage);
       // The pages come from the call, not from the model's answer: `sources` is
       // what it says it read, `links` is what it actually opened.
       return { ...result.value, links: result.sources };
@@ -710,8 +728,28 @@ export async function* runNegotiation(
     return { ...draft, offer: undefined };
   };
 
+  /**
+   * Fairness for one candidate plan.
+   *
+   * Scored twice in a run — once the instant the room settles, once on the
+   * written-up plan — and wrapped both times, because it is the claim the plan
+   * screen makes out loud and a throw here would cost the frame carrying it.
+   */
+  const fairnessFor = (candidate: Plan): FairnessReport => {
+    try {
+      return scoreFairness(briefs, candidate, turns);
+    } catch (error) {
+      logOnce("fairness", error);
+      return { rows: [], nobodyOverruled: false };
+    }
+  };
+
   let converged: Offer | null = null;
   let roundsUsed = 0;
+  /** When the room settled, measured. Null if it never did. */
+  let agreedAtMs: number | null = null;
+  /** Whether `agreed` has already gone out, so it goes out exactly once. */
+  let announced = false;
 
   try {
     while (roundsUsed < roundCap && converged === null) {
@@ -794,6 +832,26 @@ export async function* runNegotiation(
         converged =
           [...offers].reverse().find((offer) => offer.feasibility?.bookable !== false) ?? null;
       }
+
+      // Announced here, from what is already in hand, rather than after the
+      // write-up. Between this line and the `done` frame are five large-model
+      // calls — the plan prose, then one private report per person — and not
+      // one of them changes what the room settled on. Waiting for them left
+      // the town visibly finished and the plan unreachable for tens of
+      // seconds. `candidatePlan` needs no model and `fairnessFor` is local
+      // arithmetic, so the screen has everything it renders from immediately
+      // and upgrades to the written-up version when `done` arrives.
+      if (converged !== null) {
+        agreedAtMs = Date.now() - startedAt;
+        const provisional: Plan = { ...candidatePlan(converged), agreedInMs: agreedAtMs };
+        yield {
+          type: "agreed",
+          plan: provisional,
+          runnerUp: provisional.runnerUp,
+          fairness: fairnessFor(provisional),
+        };
+        announced = true;
+      }
     }
   } catch (error) {
     // Nothing above is expected to throw — every call is already wrapped — so
@@ -873,29 +931,40 @@ export async function* runNegotiation(
     return;
   }
 
-  // Two fields the model does not get a vote on: the wall-clock figure is the
-  // "three weeks to ninety seconds" number and has to be measured, and the group
-  // total is arithmetic the plan screen prints next to it.
+  // Three fields the model does not get a vote on.
+  //
+  // The offer, when the room converged, is the one it converged on, whatever
+  // the write-up describes: the agreement has already been announced and is on
+  // a screen somebody is reading, and this call is prose about that trip, not a
+  // second chance to pick a different one. The runner-up, the sentence saying
+  // why it lost and the kept wants are still the model's to write.
+  //
+  // The wall-clock figure is the "three weeks to ninety seconds" number and has
+  // to be measured — at the moment the room settled, not at the moment the
+  // write-up finished, so it does not climb under a plan screen already showing
+  // it. The group total is arithmetic the plan screen prints next to it.
+  const agreedOffer = converged ?? resolved.offer;
   const plan: Plan = {
     ...resolved,
-    groupTotal: resolved.offer.perPerson * PARTICIPANT_IDS.length,
-    agreedInMs: Date.now() - startedAt,
+    offer: agreedOffer,
+    groupTotal: agreedOffer.perPerson * PARTICIPANT_IDS.length,
+    agreedInMs: agreedAtMs ?? Date.now() - startedAt,
   };
 
-  let fairness: FairnessReport;
-  try {
-    fairness = scoreFairness(briefs, plan, turns);
-  } catch (error) {
-    logOnce("fairness", error);
-    fairness = { rows: [], nobodyOverruled: false };
-  }
+  const fairness = fairnessFor(plan);
 
-  const reports = {} as Record<ParticipantId, AgentReport>;
-  for (const participantId of PARTICIPANT_IDS) {
-    if (aborted()) return;
-    const brief = briefs[participantId];
-    if (!brief) continue;
-
+  /**
+   * One person's private report. Never rejects.
+   *
+   * `runJson` already answers null rather than throwing, and the catch is the
+   * belt to that brace: these four run concurrently, and one report failing
+   * must cost its own card and nothing else — the other three still land and
+   * the run still reaches `done`.
+   */
+  const writeReport = async (
+    participantId: ParticipantId,
+    brief: Brief,
+  ): Promise<AgentReport> => {
     const row = fairness.rows.find((entry) => entry.participantId === participantId) ?? null;
     const prompts = buildPrivateReportPrompt(
       participantId,
@@ -905,20 +974,26 @@ export async function* runNegotiation(
       row,
       names,
     );
-    const value = await runJson(
-      {
-        tag: "agent-report",
-        system: prompts.system,
-        messages: [{ role: "user", content: prompts.user }],
-        maxTokens: REPORT_MAX_TOKENS,
-        context: {
-          speaker: participantId,
-          participantId,
-          offline: offlineHints(participantId, 0),
+
+    let value: AgentReport | null = null;
+    try {
+      value = await runJson(
+        {
+          tag: "agent-report",
+          system: prompts.system,
+          messages: [{ role: "user", content: prompts.user }],
+          maxTokens: REPORT_MAX_TOKENS,
+          context: {
+            speaker: participantId,
+            participantId,
+            offline: offlineHints(participantId, 0),
+          },
         },
-      },
-      agentReportSchema,
-    );
+        agentReportSchema,
+      );
+    } catch (error) {
+      logOnce("agent-report", error);
+    }
 
     const report: AgentReport = value ?? {
       participantId,
@@ -928,13 +1003,35 @@ export async function* runNegotiation(
       secretsKept: [],
     };
 
-    reports[participantId] = {
+    return {
       ...report,
       participantId,
       // Computed, never asserted: "here is what I kept quiet" is the product's
       // central claim, and a model listing its own discretion is not evidence.
       secretsKept: secretsFromBrief(brief).map((secret) => secret.label),
     };
+  };
+
+  if (aborted()) return;
+
+  // Concurrent, because the four reports are independent: each reads one brief,
+  // one fairness row and the finished plan, and none reads another's answer.
+  // Sequentially they were four large-model round trips end to end, and the
+  // person waiting on the fourth is waiting on three answers they cannot see.
+  // The record is assembled afterwards in roster order, so the output does not
+  // depend on which call came back first.
+  const written = await Promise.all(
+    PARTICIPANT_IDS.map(async (participantId) => {
+      const brief = briefs[participantId];
+      return brief === undefined
+        ? ([participantId, null] as const)
+        : ([participantId, await writeReport(participantId, brief)] as const);
+    }),
+  );
+
+  const reports = {} as Record<ParticipantId, AgentReport>;
+  for (const [participantId, report] of written) {
+    if (report) reports[participantId] = report;
   }
 
   const elapsedMs = Date.now() - startedAt;
@@ -942,6 +1039,12 @@ export async function* runNegotiation(
     `[negotiation] ${roundsUsed} round(s), ${turns.length} turns, ${leaksCaught} leak(s) caught, ${usage.calls} call(s), ${elapsedMs}ms`,
   );
 
-  yield { type: "agreed", plan, runnerUp: plan.runnerUp };
-  yield { type: "done", fairness, reports, usage, elapsedMs };
+  // Only when the round cap ran out without the room converging: there was
+  // nothing to announce until the write-up made one, so this is the first
+  // frame that can honestly call it a plan.
+  if (!announced) {
+    yield { type: "agreed", plan, runnerUp: plan.runnerUp, fairness };
+  }
+
+  yield { type: "done", fairness, reports, usage, elapsedMs, plan, runnerUp: plan.runnerUp };
 }

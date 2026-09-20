@@ -97,7 +97,12 @@ const BEAT_WEIGHT: Record<NegotiationEvent["type"], number> = {
   thinking: 0.4,
   speak: 1,
   offer: 0.35,
-  agreed: 0.5,
+  // Zero, deliberately. The delay is applied *after* a frame is sent, so this
+  // one no longer paces anything a person watches — it only holds the engine
+  // at the yield, which is where it starts writing the plan up. `agreed` now
+  // fires the moment the room settles, and the point of that is not to sit on
+  // the work that follows it.
+  agreed: 0,
   done: 0,
 };
 
@@ -252,6 +257,11 @@ function streamNegotiation(params: RunParams, signal: AbortSignal): Response {
             updateSession(session.id, {
               turns: [...turns],
               plan: event.plan,
+              // Written with the plan, not left for `done`: `planViewFrom`
+              // renders nothing without both, and this frame arrives five
+              // large-model calls before `done` does. The write-up replaces
+              // both a moment later.
+              fairness: event.fairness,
               // Read fresh, not from the snapshot this request opened with: if
               // you approved while the room was still talking, that tap must
               // not be written back to false underneath you.
@@ -264,6 +274,10 @@ function streamNegotiation(params: RunParams, signal: AbortSignal): Response {
               fairness: event.fairness,
               reports: event.reports,
               usage: event.usage,
+              // The written-up plan, when there is one. Same offer as the
+              // provisional one this overwrites — the engine pins it — with
+              // the runner-up and the prose the model wrote.
+              ...(event.plan ? { plan: event.plan } : {}),
             });
           }
 
