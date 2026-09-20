@@ -61,10 +61,19 @@ async function check(name: string, run: () => Promise<void> | void): Promise<voi
   }
 }
 
-/** Every event of one offline run, in order. */
-async function runOffline(session: DemoSession): Promise<NegotiationEvent[]> {
+/**
+ * Every event of one offline run, in order.
+ *
+ * `roundCap` is left at the shipped default unless a check is deliberately
+ * running the room long to see whether the generator's copy holds up.
+ */
+async function runOffline(session: DemoSession, roundCap?: number): Promise<NegotiationEvent[]> {
   const events: NegotiationEvent[] = [];
-  for await (const event of runNegotiation({ session, provider: new OfflineProvider() })) {
+  for await (const event of runNegotiation({
+    session,
+    provider: new OfflineProvider(),
+    ...(roundCap === undefined ? {} : { roundCap }),
+  })) {
     events.push(event);
   }
   return events;
@@ -299,6 +308,29 @@ async function main(): Promise<void> {
       await runOffline(judgesSession("A night out on Saturday", "Saturday, 9pm", NIGHT_OUT)),
     );
     assert.notDeepEqual(dinner, night);
+  });
+
+  // The generator used to rotate three closing lines per role, which wraps
+  // inside the shipped cap of five rounds: the last speakers repeated their own
+  // first sentence word for word. Run the room far longer than it will ever run
+  // on stage, so the next person who adds a beat finds out here rather than in
+  // front of judges.
+  await check("a long room never repeats a line, however many rounds it runs", async () => {
+    for (const [label, topic, when, seats] of [
+      ["dinner", "Dinner tonight", "Tonight, 7pm", DINNER],
+      ["night out", "A night out on Saturday", "Saturday, 9pm", NIGHT_OUT],
+    ] as const) {
+      const events = await runOffline(judgesSession(topic, when, seats), 14);
+      const texts = events
+        .filter((event): event is Extract<NegotiationEvent, { type: "speak" }> => event.type === "speak")
+        .map((turn) => turn.text);
+      assert.ok(texts.length >= 40, `${label}: the long run did not actually run long`);
+      const seen = new Set<string>();
+      for (const text of texts) {
+        assert.ok(!seen.has(text), `${label}: a line was repeated verbatim in a long run: ${text}`);
+        seen.add(text);
+      }
+    }
   });
 
   await check("a generated run is deterministic", async () => {
