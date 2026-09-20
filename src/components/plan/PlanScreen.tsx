@@ -11,10 +11,11 @@
  * screen runs the negotiation itself: it POSTs `/api/negotiate` at the highest
  * speed the route accepts and drains the stream without rendering a frame of
  * it. The route persists the plan, the fairness report and the private reports
- * to the session as they land, so once the stream ends a second GET returns a
- * finished session and the screen renders exactly as if the town had been
- * watched. The town screen is the cinema; this is the same run, fast-forwarded
- * with the lights off.
+ * to the session as they land, and this screen reads the session while that is
+ * happening — so it paints at the moment the room settles rather than at the
+ * end of the stream, and renders exactly as if the town had been watched. The
+ * town screen is the cinema; this is the same run, fast-forwarded with the
+ * lights off.
  *
  * `initialView` is the same narrowing done on the server, so a reload after a
  * finished run paints the plan in the first frame instead of flashing a
@@ -26,6 +27,13 @@
  * one writing over it. That refusal is not an error here: the run that won is
  * writing the plan this screen is waiting for, so the screen stops asking and
  * watches the session until it lands.
+ *
+ * The plan arrives before the private report does. The engine announces the
+ * agreement the instant the room settles and writes the reports afterwards, so
+ * a session can hold a plan and a fairness meter with `report: null` for the
+ * length of four model calls. The screen renders on what it has and keeps
+ * reading the session until the report lands — the same poll the cold path
+ * uses, carried one step further.
  *
  * The two links at the bottom are the way out. This was the end of a one-way
  * flow: approve, and then nothing, with the browser's back button the only
@@ -39,7 +47,7 @@ import { PixelLink } from "@/components/ui/PixelButton";
 import { YOU } from "@/lib/characters";
 import { sessionViewSchema } from "@/lib/session-view";
 import { planViewFrom, type PlanView } from "./view";
-import { AgentReportCard } from "./AgentReportCard";
+import { AgentReportCard, AgentReportPending } from "./AgentReportCard";
 import { ApprovalRow } from "./ApprovalRow";
 import { FairnessMeter } from "./FairnessMeter";
 import { PlanHeadline } from "./PlanHeadline";
@@ -89,20 +97,38 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 /**
- * Reads the session until it holds a plan, or gives up.
+ * Reads the session until it holds a plan, and then until that plan has your
+ * report, handing over whatever it has as soon as it has it.
+ *
+ * One loop rather than two, because it is one wait seen twice: the plan is
+ * written the moment the room settles and the report several model calls
+ * later. Publishing on the way past is what lets the screen paint the plan at
+ * the first instant it exists and fill the right-hand card in behind it.
  *
  * The first read happens immediately, so the ordinary path — our own headless
  * run, already finished and written — costs exactly one request.
+ *
+ * Resolves to whether a plan was ever seen. The report is best-effort: a run
+ * that never writes one leaves that card in its in-progress state rather than
+ * failing a screen that has the plan on it.
  */
-async function waitForPlan(signal: AbortSignal): Promise<PlanView | null> {
+async function pollForPlan(
+  signal: AbortSignal,
+  publish: (view: PlanView) => void,
+): Promise<boolean> {
+  let seen = false;
   for (let attempt = 0; attempt < POLL_TRIES; attempt += 1) {
     const view = await loadView();
-    if (view) return view;
-    if (signal.aborted) return null;
+    if (signal.aborted) return seen;
+    if (view) {
+      publish(view);
+      seen = true;
+      if (view.report) return true;
+    }
     await sleep(POLL_MS, signal);
-    if (signal.aborted) return null;
+    if (signal.aborted) return seen;
   }
-  return null;
+  return seen;
 }
 
 /**
@@ -140,29 +166,47 @@ export function PlanScreen({
   const [view, setView] = useState<PlanView | null>(initialView);
   const [status, setStatus] = useState<Status>(initialView ? "ready" : "loading");
 
+  const publish = useCallback((next: PlanView): void => {
+    setView(next);
+    setStatus("ready");
+  }, []);
+
   const bootstrap = useCallback(async (signal: AbortSignal): Promise<void> => {
     const existing = await loadView();
     if (signal.aborted) return;
     if (existing) {
-      setView(existing);
-      setStatus("ready");
+      publish(existing);
+      // A plan with no report yet is a run still writing one. Keep reading.
+      if (!existing.report) await pollForPlan(signal, publish);
       return;
     }
 
     setStatus("negotiating");
-    await runHeadless(signal);
+
+    // Drained and watched at the same time, rather than read once the stream
+    // has ended. The route writes the plan to the session the instant the room
+    // settles and the reports several model calls later, so a screen that
+    // waits for the end of the stream waits for the write-up it could have
+    // rendered without. `allSettled` because the two are independent: a run
+    // that fails after the plan landed leaves a usable screen, and one that
+    // fails before it falls through to the throw below.
+    const settled = await Promise.allSettled([
+      runHeadless(signal),
+      pollForPlan(signal, publish),
+    ]);
     if (signal.aborted) return;
 
-    const finished = await waitForPlan(signal);
-    if (signal.aborted) return;
-    if (!finished) throw new Error("the negotiation produced no plan");
-    setView(finished);
-    setStatus("ready");
-  }, []);
+    const poll = settled[1];
+    if (poll.status === "rejected" || !poll.value) {
+      throw new Error("the negotiation produced no plan");
+    }
+  }, [publish]);
 
   useEffect(() => {
     // Nothing to fetch when the server already handed over a finished plan.
-    if (initialView) return;
+    // A plan without a report is not finished: the run is still writing it,
+    // and the poll below is what fills the card in.
+    if (initialView?.report) return;
     const controller = new AbortController();
     // Everything below the first await, so no render is triggered from the
     // effect body itself.
@@ -205,7 +249,9 @@ export function PlanScreen({
       <div className="flex min-w-0 flex-col gap-8">
         {view.report ? (
           <AgentReportCard report={view.report} you={YOU} names={view.names} />
-        ) : null}
+        ) : (
+          <AgentReportPending you={YOU} names={view.names} />
+        )}
         <div className="mt-auto flex flex-col gap-5 pt-2">
           <ApprovalRow
             you={YOU}

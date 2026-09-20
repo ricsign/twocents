@@ -57,6 +57,14 @@ has seen Richard say "$600, don't tell them" with their own eyes. When his agent
 says "Cancun doesn't work for us, how about Puerto Rico?" the room does the
 work for you. Do not explain it.
 
+**SEE THE PLAN appears the moment the room settles, and the private report can
+lag it.** The agents announce the agreement before either the plan write-up or
+the four private reports have been asked for, so the link is live and `/plan`
+paints the trip, the price and the fairness meter straight away. With a key,
+the right-hand card can spend a few seconds saying **STILL WRITING** before
+your agent's note replaces it — the screen fills itself in, so read the meter
+first and turn to the report when it lands. Offline it is already there.
+
 **The flip has to be one slider.** Change exactly one thing and rerun. Two
 changes and a judge cannot tell which one mattered.
 

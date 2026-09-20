@@ -732,11 +732,29 @@ export const negotiationEventSchema = z.discriminatedUnion("type", [
     speaker: participantIdSchema,
     offer: offerSchema,
   }),
-  /** Consensus. The Town screen starts its transition to the plan. */
+  /**
+   * Consensus. The Town screen starts its transition to the plan.
+   *
+   * Emitted the instant the round loop settles, from the offer it settled on,
+   * before any of the finalisation calls have run. The plan on it is therefore
+   * the offer itself rather than the written-up version: the same trip, the
+   * same price, without the prose. `done` carries the finished one.
+   */
   z.object({
     type: z.literal("agreed"),
     plan: planSchema,
     runnerUp: offerSchema.nullable(),
+    /**
+     * The meter, scored at the same instant.
+     *
+     * Carried on this frame because the plan screen renders only when it has
+     * a plan *and* a fairness report, and scoring is local arithmetic that
+     * costs nothing to do here. Without it the screen would hold the plan and
+     * still show nothing until `done` landed, which is the wait this frame
+     * exists to end. Public, like the rest of this frame: the same rows go to
+     * all four people on the shared plan screen.
+     */
+    fairness: fairnessReportSchema,
   }),
   /** Terminal frame: everything the plan screen needs, in one payload. */
   z.object({
@@ -753,6 +771,16 @@ export const negotiationEventSchema = z.discriminatedUnion("type", [
     reports: z.partialRecord(participantIdSchema, agentReportSchema),
     usage: usageSchema,
     elapsedMs: z.number(),
+    /**
+     * The written-up plan, replacing the provisional one from `agreed`.
+     *
+     * Same offer — the engine pins it to what the room converged on — with the
+     * runner-up, the sentence saying why it lost and the kept wants the model
+     * wrote. Optional because a run that produced no plan at all still ends in
+     * this frame.
+     */
+    plan: planSchema.optional(),
+    runnerUp: offerSchema.nullable().optional(),
   }),
 ]);
 

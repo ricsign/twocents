@@ -371,7 +371,11 @@ const PUBLIC_EVENTS: NegotiationEvent[] = [
   { type: "round", round: 1, of: 5 },
   { type: "thinking", speaker: "jordan" },
   { type: "offer", speaker: "maya", offer: OFFER },
-  { type: "agreed", plan: PLAN, runnerUp: null },
+  // Carries the fairness meter as of PR #24: the frame is emitted the instant
+  // the room settles, and the plan screen needs both halves before it renders.
+  // The rows name no ceiling and every viewer sees the same meter, so this
+  // frame still has to come through the narrowing untouched.
+  { type: "agreed", plan: PLAN, runnerUp: null, fairness: FAIRNESS },
 ];
 
 function wireEvent(event: NegotiationEvent, viewer: ParticipantId): string {
