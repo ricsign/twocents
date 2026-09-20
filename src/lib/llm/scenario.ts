@@ -781,9 +781,36 @@ function stepFor(
   return Math.min(step + bump, 2);
 }
 
-/** Closing lines rotate, so a room that runs to the round cap never repeats itself. */
-function ring(variants: readonly string[], index: number): string {
-  return variants[Math.max(0, index) % variants.length];
+/**
+ * A speaker's nth closing line.
+ *
+ * The written rungs come first, in the order they read best: the first yes is
+ * warm, the second restates it, the third is impatient. Past them the line is
+ * composed — one assent plus one tail clause, advancing on two different
+ * cycles — so the pool is `written + assents x tails` deep rather than
+ * three, and it gets terser as it goes, which is what somebody who has
+ * genuinely said their piece sounds like.
+ *
+ * It used to be a plain rotation of three. Three wraps inside the shipped round
+ * cap: a room that ran to five rounds had its last speakers repeat their own
+ * first sentence word for word, which on stage is the clearest possible tell
+ * that the negotiation is a script rather than an argument.
+ *
+ * Deterministic, and injective over the pool: indices `0 .. written.length +
+ * assents.length * tails.length - 1` each give a different line.
+ */
+function closingLine(
+  index: number,
+  written: readonly string[],
+  assents: readonly string[],
+  tails: readonly string[],
+): string {
+  const step = Math.max(0, Math.trunc(index));
+  if (step < written.length) return squeeze(written[step]);
+  const past = step - written.length;
+  const assent = assents[past % assents.length];
+  const tail = tails[Math.floor(past / assents.length) % tails.length];
+  return squeeze(`${assent} ${tail}`);
 }
 
 function openerBeat(hints: OfflineHints, scenario: Scenario, step: number): ScenarioBeat {
@@ -824,15 +851,20 @@ function openerBeat(hints: OfflineHints, scenario: Scenario, step: number): Scen
   return {
     speaker,
     kind: "agrees",
-    text: squeeze(
-      ring(
-        [
-          `Fine — ${lower(scenario.agreedTemplate.label)}. I’ll let ${headline} go, as long as ${kept} is real.`,
-          `I’ve said my piece about ${headline}. I’m not going to be the one who kills this — book it.`,
-          `Still a yes from me. Let’s stop arguing and send it.`,
-        ],
-        hints.spokenCount - 2 + hints.attempt,
-      ),
+    text: closingLine(
+      hints.spokenCount - 2 + hints.attempt,
+      [
+        `Fine — ${lower(scenario.agreedTemplate.label)}. I’ll let ${headline} go, as long as ${kept} is real.`,
+        `I’ve said my piece about ${headline}. I’m not going to be the one who kills this — book it.`,
+        `Still a yes from me. Let’s stop arguing and send it.`,
+      ],
+      ["Nothing new from me.", "Still a yes.", "Same answer as last round.", "Yes, again."],
+      [
+        `I’m not re-opening ${headline}.`,
+        `${capitalize(lower(scenario.agreedTemplate.label))} is fine by me.`,
+        `Somebody book it before I talk myself back into ${headline}.`,
+        `I’ve got nothing left to argue about.`,
+      ],
     ),
   };
 }
@@ -875,15 +907,20 @@ function holdoutBeat(hints: OfflineHints, scenario: Scenario, step: number): Sce
   return {
     speaker,
     kind: "agrees",
-    text: squeeze(
-      ring(
-        [
-          `That’s the one. ${capitalize(scenario.agreedTemplate.where)}, and it works for us. I’m in.`,
-          `Nothing’s changed for me — that’s still the one I can say yes to.`,
-          `Same answer. Let’s book it before anybody reopens this.`,
-        ],
-        hints.spokenCount - 2 + hints.attempt,
-      ),
+    text: closingLine(
+      hints.spokenCount - 2 + hints.attempt,
+      [
+        `That’s the one. ${capitalize(scenario.agreedTemplate.where)}, and it works for us. I’m in.`,
+        `Nothing’s changed for me — that’s still the one I can say yes to.`,
+        `Same answer. Let’s book it before anybody reopens this.`,
+      ],
+      ["Still in.", "Yes from me.", "No change here.", "Same word as last time."],
+      [
+        `Nothing on my side has moved.`,
+        `${capitalize(lower(scenario.agreedTemplate.label))} is the one I can actually do.`,
+        `I’d rather book it than keep talking about it.`,
+        `Ask me again and you’ll get this again.`,
+      ],
     ),
     privateReasonKept: reason,
   };
@@ -914,11 +951,16 @@ function traderBeat(hints: OfflineHints, scenario: Scenario, step: number): Scen
   return {
     speaker,
     kind: "agrees",
-    text: squeeze(
-      ring(
-        [`${capitalize(thing)} is in. Book it.`, `Still in, as long as ${thing} is.`, `Agreed. Send it.`],
-        hints.spokenCount - 2 + hints.attempt,
-      ),
+    text: closingLine(
+      hints.spokenCount - 2 + hints.attempt,
+      [`${capitalize(thing)} is in. Book it.`, `Still in, as long as ${thing} is.`, `Agreed. Send it.`],
+      ["Yes.", "Still yes.", "No notes.", "Same from me."],
+      [
+        `${capitalize(thing)} is on it, and that was the whole ask.`,
+        `I’ve got nothing to add to that.`,
+        `Book it while everyone’s still saying yes.`,
+        `Somebody hit send.`,
+      ],
     ),
   };
 }
@@ -948,15 +990,20 @@ function backerBeat(hints: OfflineHints, scenario: Scenario, step: number): Scen
   return {
     speaker,
     kind: "agrees",
-    text: squeeze(
-      ring(
-        [
-          `That works for me. ${capitalize(thing)}, and nobody had to be talked into it. I’m in.`,
-          `Still a yes. Everyone gets something out of that one.`,
-          `Agreed. Let’s send it.`,
-        ],
-        hints.spokenCount - 2 + hints.attempt,
-      ),
+    text: closingLine(
+      hints.spokenCount - 2 + hints.attempt,
+      [
+        `That works for me. ${capitalize(thing)}, and nobody had to be talked into it. I’m in.`,
+        `Still a yes. Everyone gets something out of that one.`,
+        `Agreed. Let’s send it.`,
+      ],
+      ["Fine by me.", "Still fine by me.", "No objection here.", "Yes, same as before."],
+      [
+        `I was never the one holding this up.`,
+        `${capitalize(thing)} is in there, so I’m good.`,
+        `Whenever somebody’s ready to book it.`,
+        `I’ll stop saying it now.`,
+      ],
     ),
   };
 }
