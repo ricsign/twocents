@@ -63,7 +63,9 @@ export function TownScreen({
           <TownControls
             paused={paused}
             speed={negotiation.speed}
-            disabled={status === "idle"}
+            // Nothing to pause before a run starts, and nothing to pause on a
+            // finished one that was painted rather than streamed.
+            disabled={status === "idle" || status === "done"}
             onTogglePause={paused ? negotiation.resume : negotiation.pause}
             onSpeed={negotiation.setSpeed}
             onRerun={negotiation.rerun}

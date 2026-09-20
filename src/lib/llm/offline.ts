@@ -168,26 +168,43 @@ function briefReply(req: CompletionRequest): string {
  * in the room. Nine distinct outputs, because the personality flip only reads
  * as real if dragging one slider visibly changes the sentence.
  */
+/**
+ * Nine canned previews, keyed `${tone}|${grip}|${wallet}`.
+ *
+ * `{it}` is whatever the room is actually arguing about, passed in from the
+ * personality screen. The lines used to name Cancun, the catamaran day and a
+ * $1,180 price outright, which was true of exactly one session: the seeded
+ * grad trip. In a judges' round about dinner the preview quoted an argument
+ * nobody was having, and the figure in it was a price no one had proposed.
+ *
+ * Only the contested option is substituted, never the person's own want. The
+ * contested option arrives as a place or a plan ("Cancun", "the steakhouse")
+ * and reads correctly mid-sentence; a want arrives as a sentence fragment in
+ * the human's own words and does not.
+ */
 const VOICE_LINES: Record<string, string> = {
   "blunt|stubborn|frugal":
-    "No. $1,180 for a resort we’ll leave at 9am every day is a bad trade. Find the cheaper island or count me out.",
+    "No. {it} at that price is a bad trade for how little of it we'd use. Find the cheaper version or count me out.",
   "blunt|stubborn|splurgy":
-    "Cancun’s fine, the resort isn’t the point. If we’re spending this, we’re spending it on the catamaran day. I’m not moving on that.",
+    "{it} is fine, the expensive add-ons aren't the point. If we're spending this, we're spending it on the one day we'll remember. I'm not moving on that.",
   "blunt|easy|frugal":
-    "Straight up: that’s over what works for us. Same beach, cheaper flights — I’ll take that trade every time.",
+    "Straight up: {it} is over what works for us. Same trip, cheaper, and I'll take that trade every time.",
   "blunt|easy|splurgy":
-    "Honestly? Book the better place. I’ll go along with the dates, but I’m not doing a hostel.",
+    "Honestly? Book the better version. I'll go along with the dates, but I'm not doing the bargain option.",
   "diplomatic|stubborn|frugal":
-    "I hear you on Cancun. It doesn’t work for us, though — and I’m going to keep saying that until we find the version that does.",
+    "I hear you on {it}. It doesn't work for us, though, and I'm going to keep saying that until we find the version that does.",
   "diplomatic|stubborn|splurgy":
-    "Happy to flex on almost all of it. The catamaran day isn’t one of the flexible parts.",
+    "Happy to flex on almost all of it. The one thing my person asked me for is not one of the flexible parts.",
   "diplomatic|easy|frugal":
-    "Cancun’s a stretch for us. Puerto Rico has the same beaches for less — could we look at that before we book?",
+    "{it} is a stretch for us. There's a version of this with the same upside for less. Could we look at that before we book?",
   "diplomatic|easy|splurgy":
-    "Whatever the group lands on works for me. If there’s room in it, I’d put the extra toward the hotel.",
+    "Whatever the group lands on works for me. If there's room in it, I'd put the extra toward somewhere nicer to stay.",
   "balanced|balanced|balanced":
-    "I’ll push where it matters and let the rest go. Cancun’s a stretch — let me see what else has the same beach.",
+    "I'll push where it matters and let the rest go. {it} is a stretch, so let me see what else gets us the same thing.",
 };
+
+/** What the nine lines argue against when the caller named nothing. */
+const DEFAULT_CONTESTED = "The expensive option";
 
 function voicePreview(req: CompletionRequest): string {
   const personality = isRecord(req.context?.personality) ? req.context.personality : req.context;
@@ -199,11 +216,19 @@ function voicePreview(req: CompletionRequest): string {
   const grip = stubborn >= 60 ? "stubborn" : stubborn <= 40 ? "easy" : "balanced";
   const wallet = splurgy >= 60 ? "splurgy" : splurgy <= 40 ? "frugal" : "balanced";
 
-  return (
+  const line =
     VOICE_LINES[`${tone}|${grip}|${wallet}`] ??
     VOICE_LINES[`${tone === "balanced" ? "diplomatic" : tone}|${grip === "balanced" ? "easy" : grip}|${wallet === "balanced" ? "frugal" : wallet}`] ??
-    VOICE_LINES["balanced|balanced|balanced"]
-  );
+    VOICE_LINES["balanced|balanced|balanced"] ??
+    "";
+
+  const contested = ctxString(req.context, "contested").trim();
+  const it = contested.length > 0 ? contested : DEFAULT_CONTESTED;
+  // Only the first slot opens a sentence, so the substitution keeps its case
+  // where the line starts with it and lowercases a leading article elsewhere.
+  return line
+    .replace(/^\{it\}/, it)
+    .replaceAll("{it}", it.charAt(0).toLowerCase() + it.slice(1));
 }
 
 /* -------------------------------------------------------------------------- */
