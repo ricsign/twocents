@@ -6,6 +6,10 @@
  * structured `Brief` from the whole transcript so the "YOUR AGENT KNOWS" panel
  * can fill itself in as the conversation goes.
  *
+ * The turn is then stored on the session, so the town argues from what this
+ * human actually said and a reload comes back to the conversation they were
+ * having rather than to the seed.
+ *
  * Nothing here is public. This is the one place a real budget is allowed to
  * exist in plain text; `lib/negotiation/redaction.ts` is what keeps it out of
  * the town.
@@ -21,9 +25,11 @@ import {
   participantIdSchema,
   secretsFromBrief,
   type Brief,
+  type BriefMessage,
 } from "@/lib/types";
 import { displayNameFor } from "@/lib/characters";
 import { getOrCreateDefault } from "@/lib/session";
+import { applyBrief } from "@/lib/session-writes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -114,9 +120,10 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   const { participantId, messages, brief: known } = parsed.data;
+  const session = getOrCreateDefault();
   // The same resolver the room uses, so an agent briefed in a judges' round
   // calls its human by the name the judge typed.
-  const name = displayNameFor(displayNamesOf(getOrCreateDefault()), participantId);
+  const name = displayNameFor(displayNamesOf(session), participantId);
   const lastHuman = [...messages].reverse().find((m) => m.role === "human")?.text ?? "";
   const turnIndex = messages.filter((m) => m.role === "human").length - 1;
 
@@ -167,19 +174,38 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   // The transcript is ours, not the model's: it is the literal chat, and a
   // model that paraphrases it would quietly rewrite what the human said.
-  const brief: Brief = {
+  const said: Brief = {
     ...extracted.value,
     participantId,
     rawTranscript: messages,
   };
 
-  // TODO(session): persist via `src/lib/session.ts` once it lands — another
-  // agent is writing it in parallel, so this route is deliberately stateless.
+  // Derived before the agent's own line is appended, because the badge is
+  // about what the human just said, not about what the agent answered.
+  const keptPrivate = keptPrivateLabel(lastHuman, said);
+  const text = reply.value.trim();
+  const answer: BriefMessage = {
+    role: "agent",
+    text,
+    ...(keptPrivate ? { keptPrivate } : {}),
+  };
+
+  // The agent's reply is part of the conversation, so it is part of what gets
+  // stored: a transcript that stopped at the human's line would come back from
+  // a reload missing every answer, including the one that promised to sit on
+  // the number.
+  const brief: Brief = { ...said, rawTranscript: [...messages, answer] };
+
+  // Persisted through the same write the session route uses, so a turn of the
+  // briefing chat invalidates a finished run exactly the way an explicit
+  // `updateBrief` does. A plan argued from a brief this turn just changed is
+  // not a plan for this room any more.
+  applyBrief(session, participantId, brief);
 
   const payload: BriefTurnResponse = {
-    reply: reply.value.trim(),
+    reply: text,
     brief,
-    keptPrivate: keptPrivateLabel(lastHuman, brief),
+    keptPrivate,
   };
 
   return NextResponse.json(payload);

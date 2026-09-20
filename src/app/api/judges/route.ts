@@ -261,6 +261,10 @@ export async function POST(request: Request): Promise<Response> {
     reports: null,
     usage: { ...EMPTY_USAGE },
     startedAt: Date.now(),
+    // This room is the judge's, not the script's. Leaving the flag set would
+    // have the offline provider read the canned Cancun transcript over four
+    // briefs about dinner.
+    scripted: false,
   });
 
   if (!session) {
