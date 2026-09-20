@@ -13,3 +13,6 @@ coverage/
 
 # Saved sessions: briefs, personalities, plans and built itineraries.
 .twocents/
+
+# A downloaded demo itinerary, not source.
+/*-itinerary.pdf

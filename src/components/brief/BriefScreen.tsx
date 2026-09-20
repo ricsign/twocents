@@ -210,10 +210,18 @@ export function BriefScreen({
       </div>
 
       <div className="flex min-h-0 flex-col gap-8">
-        <AgentKnowsPanel brief={brief} />
-        <BriefedRoster briefed={briefed} you={participantId} names={names} />
+        {/* What the agent knows can run long, and above 1100px this page is a
+            fixed viewport that does not scroll — so on a laptop the column ran
+            past the bottom of the window and took NEXT: PERSONALITY with it,
+            with no scrollbar to go and find it. The panels take the leftover
+            height and scroll inside it; the step forward is pinned below them
+            and is on screen at every window size. */}
+        <div className="pixel-scroll flex min-h-0 flex-1 flex-col gap-8 overflow-y-auto">
+          <AgentKnowsPanel brief={brief} />
+          <BriefedRoster briefed={briefed} you={participantId} names={names} />
+        </div>
 
-        <div className="mt-auto flex flex-col gap-3">
+        <div className="flex shrink-0 flex-col gap-3">
           <PixelButton
             variant="ghost"
             disabled={pending}
