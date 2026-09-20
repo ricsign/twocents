@@ -91,15 +91,19 @@ const SYSTEM = [
  * never come apart: this string is only ever constructed next to the pages
  * that back it, and it returns nothing when there are none. The phrasing is
  * fixed for the same reason — "a quick web search shows" is a claim about what
- * the product did, so the product says it, not a model improvising.
+ * the product did, so the product says it, not a model improvising. The note
+ * keeps its own capitalisation, because the product does not know whether the
+ * word it starts with is a proper noun.
  */
 export function sourcedFrom(check: OfferFeasibility | undefined): NegotiationSourced | null {
   if (!check || check.links.length === 0) return null;
   const note = check.note.trim();
   if (!note) return null;
-  const sentence = `${note.charAt(0).toLowerCase()}${note.slice(1)}`;
+  // Joined with a colon rather than folded into the sentence. Lowercasing the
+  // first character read fine until the desk led with a proper noun, and then
+  // the transcript said "a quick web search shows march is peak season".
   return {
-    note: `A quick web search shows ${sentence}`,
+    note: `A quick web search shows: ${note}`,
     // Three is what fits on a transcript row; the offer card keeps the rest.
     links: check.links.slice(0, 3),
   };
