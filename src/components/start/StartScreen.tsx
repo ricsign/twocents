@@ -15,7 +15,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CHARACTERS, displayNameFor, type ParticipantId } from "@/lib/characters";
+import { CHARACTERS, PARTICIPANT_IDS, displayNameFor, type ParticipantId } from "@/lib/characters";
 import { MAX_IMAGES, MAX_TOTAL_B64 } from "@/lib/ingest/schema";
 import type { DroppedPerson, SeatedChat } from "@/lib/ingest/seats";
 import type { SeatBrief } from "@/lib/room/seat";
@@ -120,9 +120,13 @@ export function StartScreen() {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          topic: draft.topic,
-          when: draft.when,
-          seats: draft.seats,
+          topic: draft.topic.trim(),
+          when: draft.when.trim() || "To be decided",
+          // A seat needs a name and a want to be a seat. Anything short of
+          // that is a chair nobody has described yet, and `seedRoom` fills it
+          // with an open seat — which is also what a three-person chat
+          // produces, so the two paths land in the same place.
+          seats: draft.seats.filter((seat) => seat.name.trim() && seat.want.trim()),
           ...(draft.usage ? { usage: draft.usage } : {}),
         }),
       });
@@ -135,6 +139,35 @@ export function StartScreen() {
       setProblem("The room could not be made. Try once more.");
       setStage("reviewing");
     }
+  }
+
+  /**
+   * Skip the photograph and describe the four people by hand.
+   *
+   * Lands on the same review screen a reading lands on, because it is the same
+   * job: four seats with a name and a want, corrected by a human before any of
+   * it becomes a room. A separate form for typing would be a second way to do
+   * one thing, and the two would drift.
+   *
+   * No budget field, here or there. That number is the one thing the host must
+   * not type on somebody else's behalf — each person gives it to their own
+   * agent on the briefing screen, which is the whole claim.
+   */
+  function typeThemIn(): void {
+    setProblem(null);
+    setDraft({
+      topic: "",
+      when: "",
+      seats: PARTICIPANT_IDS.map((participantId) => ({
+        participantId,
+        name: "",
+        want: "",
+        budget: null,
+      })),
+      dropped: [],
+      notes: [],
+    });
+    setStage("reviewing");
   }
 
   function editSeat(index: number, patch: Partial<SeatBrief>): void {
@@ -195,6 +228,7 @@ export function StartScreen() {
           onPick={(files) => void pick(files)}
           onRemove={(index) => setImages((prev) => prev.filter((_, i) => i !== index))}
           onRead={() => void read()}
+          onTypeInstead={typeThemIn}
         />
       )}
     </main>
@@ -213,6 +247,7 @@ function Picker({
   onPick,
   onRemove,
   onRead,
+  onTypeInstead,
 }: {
   images: PreparedImage[];
   stage: Stage;
@@ -221,6 +256,7 @@ function Picker({
   onPick: (files: FileList | null) => void;
   onRemove: (index: number) => void;
   onRead: () => void;
+  onTypeInstead: () => void;
 }) {
   const reading = stage === "reading";
   const [dragging, setDragging] = useState(false);
@@ -330,7 +366,7 @@ function Picker({
         {reading ? "READING THE CHAT…" : "READ THE CHAT"}
       </PixelButton>
 
-      <Escapes />
+      <Escapes onTypeInstead={onTypeInstead} />
     </>
   );
 }
@@ -360,17 +396,25 @@ function Review({
 }) {
   if (!draft) return null;
 
+  // Read off a chat, or typed by hand. Only the copy and the caveats differ:
+  // it is the same four seats going to the same room either way.
+  const read = draft.seats.some((seat) => seat.draft);
+  const ready = draft.topic.trim().length > 0 && draft.seats.some(
+    (seat) => seat.name.trim() && seat.want.trim(),
+  );
+
   return (
     <>
       <header className="flex flex-col gap-3">
         <h1 className="head m-0 text-[40px] leading-none font-bold text-ink">
-          Here is what we read
+          {read ? "Here is what we read" : "Who is coming?"}
         </h1>
         <p className="m-0 max-w-[60ch] text-[15px] leading-relaxed text-bark">
-          Fix anything that is wrong. Each of these people gets their own agent, and each
-          of them will tell it the one thing that never made it into the chat.
+          {read
+            ? "Fix anything that is wrong. Each of these people gets their own agent, and each of them will tell it the one thing that never made it into the chat."
+            : "A name and one line about what each of them wants. Leave a seat blank if it is not taken yet. Each of them gets their own agent, and tells it the rest themselves."}
         </p>
-        {draft.offline ? (
+        {read && draft.offline ? (
           <p className="disp m-0 text-[8px] leading-relaxed text-bark">
             ● NO API KEY — THIS IS A PLACEHOLDER ROOM, NOT A READING
           </p>
@@ -429,11 +473,17 @@ function Review({
         </p>
       ) : null}
 
+      {!ready ? (
+        <p className="disp m-0 text-center text-[7px] leading-relaxed text-bark">
+          NEEDS WHAT YOU ARE PLANNING, AND AT LEAST ONE PERSON WITH A NAME AND A WANT
+        </p>
+      ) : null}
+
       <PixelButton
         variant="primary"
         raised
         onClick={onConfirm}
-        disabled={busy || draft.seats.every((seat) => !seat.name.trim())}
+        disabled={busy || !ready}
         className="h-16 w-full"
       >
         {busy ? "MAKING THE ROOM…" : "MAKE THE ROOM →"}
@@ -459,7 +509,11 @@ function SeatDraft({
 }) {
   const id = seat.participantId as ParticipantId;
   const character = CHARACTERS[id];
-  const label = displayNameFor({ [id]: seat.name }, id);
+  // A blank seat is Player n, not a cast name. `displayNameFor` would fall
+  // back to the sprite's own name, which introduces somebody who is not here.
+  const label = seat.name.trim()
+    ? displayNameFor({ [id]: seat.name }, id)
+    : `Player ${PARTICIPANT_IDS.indexOf(id) + 1}`;
   const unsure = seat.draft?.confidence === "unsure";
 
   return (
@@ -468,7 +522,7 @@ function SeatDraft({
         }`}
     >
       <header className="flex items-center gap-3">
-        <Avatar id={id} size={40} className="shrink-0" names={{ [id]: seat.name }} />
+        <Avatar id={id} size={40} className="shrink-0" names={{ [id]: label }} />
         <div
           className="disp px-2 py-1 text-[7px] text-white"
           style={{ background: character.color }}
@@ -521,22 +575,30 @@ function SeatDraft({
 
       <p className="disp m-0 flex items-center gap-1.5 text-[7px] text-bark">
         <LockIcon size={10} />
-        THEIR BUDGET IS THEIRS TO GIVE, NOT OURS TO READ
+        THEY TELL THEIR OWN AGENT WHAT THEY CAN SPEND
       </p>
     </section>
   );
 }
 
 /** Always on screen. No state in this flow is a dead end. */
-function Escapes() {
+/**
+ * Always on screen. No state in this flow is a dead end.
+ *
+ * `onTypeInstead` is absent once you are already reviewing, because by then
+ * you are typing: the offer would point at the screen you are looking at.
+ */
+function Escapes({ onTypeInstead }: { onTypeInstead?: () => void }) {
   return (
     <div className="flex flex-wrap gap-3">
       <PixelLink href="/brief" variant="ghost" className="h-11 px-4 text-[9px]">
         JUST ME, NO ROOM
       </PixelLink>
-      <PixelLink href="/judges" variant="ghost" className="h-11 px-4 text-[9px]">
-        TYPE THEM IN INSTEAD
-      </PixelLink>
+      {onTypeInstead ? (
+        <PixelButton variant="ghost" onClick={onTypeInstead} className="h-11 px-4 text-[9px]">
+          NO SCREENSHOT — TYPE THEM IN
+        </PixelButton>
+      ) : null}
     </div>
   );
 }

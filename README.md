@@ -40,6 +40,12 @@ You correct whatever it got wrong, press one button, and get a room code to send
 the others. They open the link, answer **"Who are you?"**, and land on the same
 briefing screen with their half of the chat already filled in.
 
+No screenshot to hand? The same screen types them in — a name and a line about
+what each person wants, on the same review step a reading lands on, because it
+is the same four seats going to the same room. A seat left blank is a chair
+somebody can still claim. Either way there is no budget field: that number is
+the one thing a host must not enter on somebody else's behalf.
+
 **The photo seeds a draft, never a fact.** The schema the model answers against
 has no field that can hold a figure — money comes back as one of four words, not
 a number — so a screenshot cannot decide somebody else's ceiling even when the
