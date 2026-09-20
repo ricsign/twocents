@@ -10,8 +10,10 @@
  * rather than navigating anywhere.
  */
 
+import type { ComponentProps } from "react";
 import type { Speed } from "@/hooks/useNegotiation";
 import { SPEEDS } from "@/hooks/useNegotiation";
+import { PushToTalk } from "./push-to-talk";
 
 const BASE =
   "disp cursor-pointer border-[3px] border-ink bg-card text-ink px-press";
@@ -23,6 +25,7 @@ export function TownControls({
   onSpeed,
   onReset,
   disabled = false,
+  talk,
 }: {
   paused: boolean;
   speed: Speed;
@@ -30,12 +33,16 @@ export function TownControls({
   onSpeed: (speed: Speed) => void;
   onReset: () => void;
   disabled?: boolean;
+  /** sessionId + participantId for the live user. Omit to hide the talk button. */
+  talk?: ComponentProps<typeof PushToTalk>;
 }) {
   return (
     <div
       className="absolute z-10 flex items-center gap-2.5"
       style={{ right: 20, bottom: 20 }}
     >
+      {talk && <PushToTalk {...talk} />}
+
       <button
         type="button"
         onClick={onTogglePause}

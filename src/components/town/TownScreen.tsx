@@ -9,6 +9,8 @@
 
 import { useEffect } from "react";
 import type { DisplayNames } from "@/lib/characters";
+import { DEFAULT_SESSION_ID } from "@/lib/session";
+import { DEFAULT_VIEWER } from "@/lib/session-view";
 import { PixelLink } from "@/components/ui/PixelButton";
 import { useNegotiation } from "@/hooks/useNegotiation";
 import { Room } from "./Room";
@@ -45,6 +47,7 @@ export function TownScreen({ names }: { names?: DisplayNames }) {
             onTogglePause={paused ? negotiation.resume : negotiation.pause}
             onSpeed={negotiation.setSpeed}
             onReset={negotiation.reset}
+            talk={{ sessionId: DEFAULT_SESSION_ID, participantId: DEFAULT_VIEWER }}
           />
         </Room>
       </div>

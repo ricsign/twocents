@@ -29,6 +29,7 @@ import {
   sessionViewFor,
   type SessionView,
 } from "@/lib/session-view";
+import { clearRoom } from "@/lib/negotiation/interjection-control";
 import {
   briefSchema,
   participantIdSchema,
@@ -183,7 +184,11 @@ export async function POST(request: Request): Promise<Response> {
     // Total by construction — a fresh seed object, not a diff — so nothing from
     // the previous judge's run can survive into the next one. Resetting is a
     // room-wide act, so it is the one write not scoped to one participant.
-    return viewResponse(resetSession(body.sessionId ?? DEFAULT_SESSION_ID), viewer);
+    const fresh = resetSession(body.sessionId ?? DEFAULT_SESSION_ID);
+    // A stale push-to-talk pause or a queued-but-unconsumed interjection from
+    // the last run is exactly the kind of thing "nothing survives" has to mean.
+    clearRoom(fresh.id);
+    return viewResponse(fresh, viewer);
   }
 
   const session = sessionFor(body.sessionId);

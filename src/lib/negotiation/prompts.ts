@@ -99,7 +99,15 @@ function formatFeasibility(check: OfferFeasibility | undefined): string {
   return `${check.bookable ? "CHECKED" : "NOT BOOKABLE"}: ${check.note}${real}`;
 }
 
-/** `r2 Jordan trades: "Fine. But we keep the catamaran day."` */
+/**
+ * `r2 Jordan trades: "Fine. But we keep the catamaran day."`
+ *
+ * A turn whose `kind` is `"interjection"` is not agent output at all — it is
+ * the real person, live, over push-to-talk — and is marked `(live)` instead of
+ * a turn kind so it reads as unmistakably different from every generated line
+ * around it, both to a person skimming the transcript and to the other agents'
+ * next prompt.
+ */
 export function formatTurn(
   turn: NegotiationTurn,
   maxChars = 160,
@@ -107,6 +115,9 @@ export function formatTurn(
 ): string {
   const name = displayNameFor(names, turn.speaker);
   const text = turn.text.length > maxChars ? `${turn.text.slice(0, maxChars - 1)}…` : turn.text;
+  if (turn.kind === "interjection") {
+    return `r${turn.round} ${name} (live): ${text}`;
+  }
   return `r${turn.round} ${name} ${turn.kind}: ${text}`;
 }
 
@@ -169,6 +180,7 @@ export function buildPublicSystemPrompt(
     "5. Move the negotiation: propose something concrete, push back on something specific, or trade one thing for another. Do not restate a point you have already made.",
     "6. When an option on the table works for your person, say so and agree. Agreement is a win, not a loss.",
     "7. Every option is priced against the live web before you see it. An option marked NOT BOOKABLE is a fantasy — say what it really costs and argue from that number, or put up something that exists. Never agree to one.",
+    "8. A line marked \"(live)\" in the transcript is the real person speaking for themselves, not their agent. Treat it as the single most authoritative statement of what they want, and answer it directly on your next turn.",
   ].join("\n");
 }
 
@@ -192,7 +204,8 @@ export function buildNegotiationUserPrompt(options: {
   turns: readonly NegotiationTurn[];
   offers: readonly Offer[];
   leadingOffer: Offer | null;
-  /** Appended verbatim; carries the redaction retry and the repeat nudge. */
+  /** Appended verbatim; carries the redaction retry, the repeat nudge, and a
+   * live interjection's "respond to this" instruction. */
   correction?: string;
   recentTurnCount?: number;
 }): string {

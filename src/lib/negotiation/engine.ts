@@ -9,7 +9,10 @@
  * - **The secret guard is not optional.** Every generated public line goes
  *   through `checkForLeaks` against its own speaker's secrets before it can
  *   become a `speak` event. There is no path from a model response to the wire
- *   that skips it — not the happy path, not the retry, not the fallback.
+ *   that skips it — not the happy path, not the retry, not the fallback. A
+ *   push-to-talk interjection goes through the same guard, one hop earlier, in
+ *   `/api/negotiate/interject` — by the time this file sees it, it is already
+ *   clean.
  * - **Convergence is arithmetic, not another model call.** See
  *   `findConvergedOffer` below.
  * - **It never throws.** The demo has to reach a plan in front of a judge even
@@ -37,6 +40,11 @@ import {
   buildFeasibilityRequest,
   webSearchEnabled,
 } from "@/lib/negotiation/feasibility";
+import {
+  clearRoom,
+  takePendingInterjection,
+  waitWhilePaused,
+} from "@/lib/negotiation/interjection-control";
 import {
   buildNegotiationUserPrompt,
   buildPlanPrompt,
@@ -101,6 +109,15 @@ type TurnDraft = z.infer<typeof turnDraftSchema>;
 const TURN_MAX_TOKENS = 600;
 const PLAN_MAX_TOKENS = 900;
 const REPORT_MAX_TOKENS = 500;
+
+/**
+ * The longest a held push-to-talk button can hold up the round loop.
+ *
+ * A forgotten button or a dropped connection is not a thing to bet a demo on —
+ * past this, the room unpauses itself and carries on as if it had been
+ * released with nothing to say.
+ */
+const MAX_PAUSE_MS = 15_000;
 
 /* -------------------------------------------------------------------------- */
 /* Convergence: the deterministic part                                         */
@@ -442,6 +459,10 @@ export async function* runNegotiation(
   const roundCap = Math.max(1, Math.trunc(opts.roundCap ?? NEGOTIATION_ROUND_CAP));
   const offline = new OfflineProvider();
 
+  // A stale pause or a queued line from a previous run (a refresh mid-hold, an
+  // aborted stream) can never survive into this one.
+  clearRoom(opts.session.id);
+
   let provider: LLMProvider = opts.provider ?? getProvider();
   let usage: Usage = { ...EMPTY_USAGE };
   let leaksCaught = 0;
@@ -648,12 +669,53 @@ export async function* runNegotiation(
 
       yield { type: "round", round, of: roundCap };
 
+      // Reset per round: a live line should color the whole rotation it landed
+      // in, but not linger into a round where nothing was said live.
+      let liveCorrection: string | undefined;
+      let skipSpeaker: ParticipantId | null = null;
+
       for (const speaker of order) {
         if (aborted()) return;
 
+        // A held push-to-talk button pauses right here, between turns, never
+        // mid-generation — the line already in flight always finishes. Returns
+        // immediately when nobody is holding it down.
+        await waitWhilePaused(opts.session.id, opts.signal, MAX_PAUSE_MS);
+        if (aborted()) return;
+
+        // A released button hands us a leak-checked transcript here, at the
+        // next available checkpoint — not necessarily this speaker's own.
+        const interjection = takePendingInterjection(opts.session.id);
+        if (interjection) {
+          const liveTurn: NegotiationTurn = {
+            id: `turn-${interjection.participantId}-${round}-${turns.length}`,
+            round,
+            speaker: interjection.participantId,
+            kind: "interjection",
+            text: interjection.text,
+          };
+          turns.push(liveTurn);
+          yield {
+            type: "speak",
+            speaker: liveTurn.speaker,
+            kind: liveTurn.kind,
+            text: liveTurn.text,
+          };
+
+          liveCorrection = `${displayNameFor(names, interjection.participantId)} just said, live: "${interjection.text}". Respond to this before anything else.`;
+          skipSpeaker = interjection.participantId;
+        }
+
+        // The person who just spoke for themselves does not also get their
+        // agent's scripted line this round — their live line was the turn.
+        if (speaker === skipSpeaker) {
+          skipSpeaker = null;
+          continue;
+        }
+
         yield { type: "thinking", speaker };
 
-        let draft = await generateLine(speaker, round, round, undefined);
+        let draft = await generateLine(speaker, round, round, liveCorrection);
 
         // An agent repeating itself verbatim is a stalled negotiation, and on
         // screen it reads as a bug. One nudge, one beat further on.
