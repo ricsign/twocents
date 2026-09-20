@@ -14,6 +14,23 @@ function withIds(messages: readonly BriefMessage[], prefix: string): ChatMessage
 }
 
 /**
+ * The same lines with the key taken back off, ready to post.
+ *
+ * `id` is this component's own bookkeeping and the only field the route does
+ * not want. Everything else goes, `keptPrivate` included: the route stores
+ * what it is sent as the whole transcript, so rebuilding each message from
+ * `{ role, text }` quietly stripped every badge but the newest one — and a
+ * reload then came back to a conversation where the agent never promised to
+ * sit on the number, which is the one line the demo is built around.
+ * `briefMessageSchema` has carried the field since it was added.
+ */
+function forWire(messages: readonly ChatMessage[]): BriefMessage[] {
+  return messages.map(({ role, text, keptPrivate }) =>
+    keptPrivate === undefined ? { role, text } : { role, text, keptPrivate },
+  );
+}
+
+/**
  * True once this agent has been told anything at all.
  *
  * Two conditions rather than one because the two ways into this screen differ:
@@ -65,7 +82,7 @@ export function BriefScreen({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           participantId,
-          messages: next.map(({ role, text: t }) => ({ role, text: t })),
+          messages: forWire(next),
           brief,
         }),
       });

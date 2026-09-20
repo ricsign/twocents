@@ -10,12 +10,17 @@
  * rather than navigating anywhere.
  *
  * RUN AGAIN and RESET DEMO are two different acts and used to be one button.
- * RESET DEMO replaces the session with a fresh seed, which throws away the
- * brief the person in the seat just typed and every slider they moved; RUN
- * AGAIN argues the same room out a second time. When the only control was
- * labelled RESET, the personality-flip beat used it to "run it again" and
- * quietly reseeded the flip away. A judge reading a label should be able to
- * tell which one they are about to get.
+ * RESET DEMO replaces the session with a fresh seed and hands the keyboard
+ * back at step 1, because a fresh seed is a room whose fourth agent has been
+ * told nothing; RUN AGAIN argues the room as it stands out a second time.
+ * When the only control was labelled RESET, the personality-flip beat used it
+ * to "run it again" and quietly reseeded the flip away. A judge reading a
+ * label should be able to tell which one they are about to get.
+ *
+ * `disabled` covers the pause button and the speed group together. Both act
+ * on a live stream, and there is no stream behind a run that was painted from
+ * the session rather than watched: a highlighted 4x that changes nothing is a
+ * worse answer than a dimmed one.
  */
 
 import type { Speed } from "@/hooks/useNegotiation";
@@ -39,7 +44,7 @@ export function TownControls({
   onSpeed: (speed: Speed) => void;
   /** Argue the same room out again, keeping every brief and every slider. */
   onRerun: () => void;
-  /** Rebuild the room from the seed, discarding briefs and sliders. */
+  /** Rebuild the room from the seed and go back to the briefing screen. */
   onReset: () => void;
   disabled?: boolean;
 }) {
@@ -70,9 +75,10 @@ export function TownControls({
               key={value}
               type="button"
               onClick={() => onSpeed(value)}
+              disabled={disabled}
               aria-pressed={active}
               aria-label={`Play at ${value} times speed`}
-              className={`disp h-[42px] cursor-pointer border-0 px-3.5 text-[10px] ${
+              className={`disp h-[42px] cursor-pointer border-0 px-3.5 text-[10px] disabled:cursor-default disabled:opacity-45 ${
                 index > 0 ? "border-l-[3px] border-ink" : ""
               } ${active ? "bg-ink text-gold" : "bg-card text-ink"}`}
             >
@@ -95,8 +101,8 @@ export function TownControls({
       <button
         type="button"
         onClick={onReset}
-        title="Rebuild the room from the seeded demo, discarding every brief and slider, then run it"
-        aria-label="Reset to the seeded demo, discarding every brief and personality"
+        title="Rebuild the room from the seeded demo, discarding every brief and slider, and start again at the briefing"
+        aria-label="Reset to the seeded demo and go back to the briefing screen"
         className={`${BASE} h-12 px-4 text-[10px]`}
       >
         RESET DEMO

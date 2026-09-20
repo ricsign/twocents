@@ -408,12 +408,27 @@ function buildOfflineHints(
     Number.POSITIVE_INFINITY,
   );
 
-  const first = people[0];
+  // When the trip happens, taken from whoever actually said so rather than
+  // from seat zero. Seat zero is always the person at the keyboard, and their
+  // brief is empty until they type something — so reading both fields off
+  // them put a blank on every offer card in a room where three other people
+  // had stated the dates. First non-empty wins, in roster order, because the
+  // four briefs are for one shared trip and disagreement between them is not
+  // a thing this module is entitled to resolve.
+  let when = "";
+  let nights: number | null = null;
+  for (const person of people) {
+    const brief = briefs[person.participantId];
+    if (!brief) continue;
+    if (when.length === 0 && brief.dates.trim().length > 0) when = brief.dates;
+    if (nights === null && brief.nights !== null) nights = brief.nights;
+  }
+
   return {
     scenarioId: isSeedScenario(session) ? SEED_SCENARIO_ID : null,
     topic: session.tripName,
-    when: first ? (briefs[first.participantId]?.dates ?? "") : "",
-    nights: first ? (briefs[first.participantId]?.nights ?? null) : null,
+    when,
+    nights,
     priceCap,
     people,
   };

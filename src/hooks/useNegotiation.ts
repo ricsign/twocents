@@ -21,10 +21,16 @@
  *   the top of it would overwrite the very outcome the plan screen just showed.
  *   So the caller hands the stored run in, it becomes the opening state, and
  *   running again is something a judge asks for by name.
+ * - **A run somebody else started is adopted, not raced.** `/api/negotiate`
+ *   allows one negotiation per session and answers 409 to the second caller.
+ *   This hook waits for the winner's result and paints that, which is the same
+ *   thing it does with a run the session was already holding.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { YOU, type ParticipantId } from "@/lib/characters";
+import { sessionViewSchema } from "@/lib/session-view";
 import {
   NEGOTIATION_ROUND_CAP,
   negotiationEventSchema,
@@ -93,7 +99,7 @@ export interface Negotiation extends StreamState {
   resume: () => void;
   /** Argue it out again, from the briefs and personalities the room has now. */
   rerun: () => void;
-  /** Throw the room away and rebuild it from the seed, then run that. */
+  /** Throw the room away, rebuild it from the seed, and go back to step 1. */
   reset: () => void;
   setSpeed: (speed: Speed) => void;
 }
@@ -146,6 +152,68 @@ function replay(finished: FinishedRun | null): StreamState {
     offers,
     plan: finished.plan,
   };
+}
+
+/** The route's answer when another screen already holds this session's run. */
+const ALREADY_RUNNING = 409;
+
+/**
+ * How long to watch the session for that other run to land, and how often.
+ *
+ * The run that beat us to it is `/plan`'s headless one, which drains at 8x and
+ * is usually done inside a few seconds; the budget is long enough that a live
+ * model run does not fall off the end of it either.
+ */
+const ADOPT_POLL_MS = 900;
+const ADOPT_POLL_TRIES = 120;
+
+/** Resolves after `ms`, or at once if the caller has already given up. */
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(resolve, ms);
+    signal.addEventListener("abort", () => {
+      window.clearTimeout(timer);
+      resolve();
+    }, { once: true });
+  });
+}
+
+/**
+ * The run another screen is already streaming, read out of the session once it
+ * lands.
+ *
+ * `/api/negotiate` allows one negotiation per session and answers 409 to the
+ * second caller, which on stage is the step-3 pip tapped while `/plan` is
+ * still draining its headless run. That run is writing the very outcome this
+ * screen wants, so the honest thing is to wait for it and paint it, exactly as
+ * a browser-back onto a finished session paints one. Returns null if it never
+ * arrives, and the caller shows the error state it always did.
+ */
+async function adoptInFlightRun(
+  sessionId: string,
+  signal: AbortSignal,
+): Promise<FinishedRun | null> {
+  for (let attempt = 0; attempt < ADOPT_POLL_TRIES; attempt += 1) {
+    await sleep(ADOPT_POLL_MS, signal);
+    if (signal.aborted) return null;
+
+    try {
+      const res = await fetch(
+        `/api/session?viewer=${YOU}&sessionId=${encodeURIComponent(sessionId)}`,
+        { cache: "no-store", signal },
+      );
+      if (!res.ok) continue;
+      const parsed = sessionViewSchema.safeParse((await res.json()) as unknown);
+      if (parsed.success && parsed.data.plan) {
+        return { turns: parsed.data.turns, plan: parsed.data.plan };
+      }
+    } catch {
+      if (signal.aborted) return null;
+      // A single failed read is not the run failing. Ask again.
+    }
+  }
+  return null;
 }
 
 /** Queued work: a validated frame, or the `[DONE]` sentinel in its right place. */
@@ -234,6 +302,7 @@ export function useNegotiation({
   sessionId = "demo",
   finished = null,
 }: NegotiationOptions = {}): Negotiation {
+  const router = useRouter();
   // Read once, as initial state. A later render handing over a different
   // `finished` must not reach in and rewrite a run that is already streaming.
   const [state, setState] = useState<StreamState>(() => replay(finished));
@@ -302,6 +371,18 @@ export function useNegotiation({
           body: JSON.stringify({ sessionId, viewer: YOU, speed: runSpeed }),
           signal: controller.signal,
         });
+        if (response.status === ALREADY_RUNNING) {
+          const adopted = await adoptInFlightRun(sessionId, controller.signal);
+          if (controller.signal.aborted) return;
+          if (!adopted) {
+            setStatus("error");
+            return;
+          }
+          setState(replay(adopted));
+          setElapsedMs(adopted.plan.agreedInMs);
+          setStatus("done");
+          return;
+        }
         if (!response.ok || !response.body) {
           throw new Error(`negotiate responded ${response.status}`);
         }
@@ -390,16 +471,22 @@ export function useNegotiation({
   }, [begin]);
 
   /**
-   * The judges' reset: throw the whole room away, rebuild it from the seed, and
-   * run that.
+   * The judges' reset: throw the whole room away, rebuild it from the seed,
+   * and go back to step 1.
    *
    * Restarting the stream alone would have left the previous run's plan,
    * approvals, transcript and token tally sitting in the session store, so the
    * plan screen after a "fresh" run would still have shown the old one. The
    * POST replaces the session object outright — `resetSession` builds a new
-   * seed rather than diffing the old one — and only then does a new stream
-   * open, so the negotiation the judge watches is arguing from a
-   * briefed-but-unnegotiated session.
+   * seed rather than diffing the old one.
+   *
+   * What it does *not* do any more is start a negotiation. The seeded brief
+   * for the person at the keyboard is empty, so a fresh seed is a room where
+   * one of the four has been told nothing; `/town` and `/personality` both
+   * redirect an empty seat back to `/brief`, and this button was arguing that
+   * room out at the same time as the screen it ran on was being bounced off.
+   * `/brief` is the only honest destination for a session in that state, and
+   * it is also the beat the demo restarts from.
    *
    * That total-ness is the reason `rerun` exists beside it. Reseeding also
    * discards whatever the person in the seat told their agent and whatever they
@@ -407,9 +494,10 @@ export function useNegotiation({
    * time. The control that does this says so.
    *
    * The abort comes first so no frame from the outgoing run can write itself
-   * into the session the POST is about to replace. The whole thing is one
-   * in-process map write and a new fetch, which is well inside the one second
-   * a judge will wait.
+   * into the session the POST is about to replace. `router.refresh()` before
+   * the push is the same reason `RunStats` does it: every screen here renders
+   * the session on the server, so the cached payload for the page being left
+   * would otherwise still describe the run that just ended.
    */
   const reset = useCallback(() => {
     abortRef.current?.abort();
@@ -420,6 +508,7 @@ export function useNegotiation({
     pausedRef.current = false;
     clockRef.current = 0;
 
+    // Nothing auto-starts between here and the navigation below.
     startedRef.current = true;
     setState(EMPTY);
     setElapsedMs(0);
@@ -433,13 +522,14 @@ export function useNegotiation({
           body: JSON.stringify({ action: "reset", sessionId }),
         });
       } catch {
-        // A reset that could not reach the server still deserves a fresh run:
-        // the stream below re-runs the negotiation either way, and the stale
-        // plan it leaves behind is a worse outcome than a retried fetch.
+        // A reset that could not reach the server still has to land somewhere
+        // the presenter can work from, and `/brief` renders whatever the
+        // session holds. Better a retried reset than a stranded screen.
       }
-      begin(speedRef.current);
+      router.refresh();
+      router.push("/brief");
     })();
-  }, [begin, sessionId]);
+  }, [router, sessionId]);
 
   // The server keeps streaming through a pause; the queue is what holds the
   // room still, so pausing is "stop draining", not "stop listening".

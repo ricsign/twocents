@@ -103,6 +103,12 @@ function Cell({
  * `router.refresh()` before the push is not decoration. Every screen here
  * renders the session on the server, so the router's cached payload for the
  * page we are leaving would otherwise still describe the run that just ended.
+ * It is the same pair of calls the town's RESET DEMO makes on its way to
+ * `/brief` and the judges' START makes on its way to `/town`: clear the
+ * session, drop the cache, land somewhere the new session can actually
+ * render. Only the destination differs, and it differs because the two resets
+ * are pointed at different entrances — this one at the judges' round, the
+ * town's at step 1 of the demo.
  */
 function ResetRun({ sessionId }: { sessionId?: string }) {
   const router = useRouter();

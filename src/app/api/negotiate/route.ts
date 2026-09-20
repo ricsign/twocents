@@ -21,6 +21,8 @@
  *   everything — each human reads their own back through the session route.
  *   Reads take `?viewer=`, POSTs carry `viewer` in the body, both default to
  *   the demo user.
+ * - **Exclusivity.** One negotiation per session at a time; see the lease
+ *   below.
  */
 
 import { runNegotiation } from "@/lib/negotiation/engine";
@@ -91,6 +93,61 @@ function parseSpeed(raw: unknown): number {
 }
 
 /* -------------------------------------------------------------------------- */
+/* One run at a time, per session                                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Sessions with a negotiation streaming into them right now.
+ *
+ * Two screens each decide on their own that the room needs arguing out.
+ * `/plan` starts a headless run when it is opened cold, and `/town`
+ * auto-starts one whenever the session it renders has no plan — so tapping
+ * the step-3 pip while the plan screen is still draining opened two. Both
+ * write to the same session as they land, independently, and the store could
+ * end up holding run B's `plan` beside run A's `fairness` and `reports`: a
+ * fairness meter scoring a plan nobody in that transcript agreed to.
+ *
+ * **The second caller gets 409, not a copy of the first stream.** Teeing would
+ * mean one run answering to two paces, two speeds and two aborts, for a
+ * benefit neither caller needs: the run already in flight is writing the exact
+ * outcome both of them are waiting for, and both clients can read it back out
+ * of the session when it lands. So the refusal is the useful answer, and
+ * `PlanScreen` and `useNegotiation` both treat it as "somebody else is getting
+ * this for us" rather than as an error.
+ *
+ * **A lease, not a flag.** `releaseRun` runs in a `finally` that covers a clean
+ * end, a thrown encoder, an aborted request and a client that hung up. The
+ * lease is the answer to whatever escapes that — a killed process, a bug in
+ * the release path — because a session that can never negotiate again is a
+ * worse failure on stage than two runs racing once. An entry older than the
+ * lease is treated as abandoned and taken over.
+ *
+ * Module state rather than `globalThis`: a dev-server hot reload dropping this
+ * map can at worst allow one duplicate run, while a stale entry surviving one
+ * would block the session for the length of the lease. Losing it is the safe
+ * direction.
+ */
+const inFlight = new Map<string, { token: symbol; startedAt: number }>();
+
+/** Longer than any run the round cap allows, short enough to recover on stage. */
+const RUN_LEASE_MS = 180_000;
+
+/** The lease on this session, or null while somebody else holds a live one. */
+function claimRun(sessionId: string): symbol | null {
+  const held = inFlight.get(sessionId);
+  if (held && Date.now() - held.startedAt < RUN_LEASE_MS) return null;
+
+  const token = Symbol(sessionId);
+  inFlight.set(sessionId, { token, startedAt: Date.now() });
+  return token;
+}
+
+/** Releases our own lease only, so a takeover survives the run it replaced. */
+function releaseRun(sessionId: string, token: symbol): void {
+  if (inFlight.get(sessionId)?.token === token) inFlight.delete(sessionId);
+}
+
+/* -------------------------------------------------------------------------- */
 /* The stream                                                                  */
 /* -------------------------------------------------------------------------- */
 
@@ -109,6 +166,14 @@ function streamNegotiation(params: RunParams, signal: AbortSignal): Response {
 
   if (!session) {
     return Response.json({ error: "unknown session", sessionId: params.sessionId }, { status: 404 });
+  }
+
+  const token = claimRun(session.id);
+  if (!token) {
+    return Response.json(
+      { error: "a negotiation is already running for this session", sessionId: session.id },
+      { status: 409, headers: { "Retry-After": "1" } },
+    );
   }
 
   const encoder = new TextEncoder();
@@ -167,6 +232,10 @@ function streamNegotiation(params: RunParams, signal: AbortSignal): Response {
         // The engine does not throw, so this is the encoder or a closed stream.
         // Either way the run is over and the sentinel still goes out.
         console.warn("[negotiate] stream ended early:", error);
+      } finally {
+        // Before the sentinel, not after: the lease guards the session writes
+        // above, and by here the last of them has happened.
+        releaseRun(session.id, token);
       }
 
       send("[DONE]");
