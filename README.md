@@ -30,6 +30,28 @@ Four screens, in order.
 There is a fifth screen, `/judges`, which is the whole thing in twenty seconds:
 name four people, give each a one-line want and a private budget, press START.
 
+### Or start from the group chat
+
+`/start` takes the conversation that has been going nowhere. Upload a screenshot
+or four, and a vision call reads who is in it and what each of them asked for.
+You correct whatever it got wrong, press one button, and get a room code to send
+the others. They open the link, answer **"Who are you?"**, and land on the same
+briefing screen with their half of the chat already filled in.
+
+**The photo seeds a draft, never a fact.** The schema the model answers against
+has no field that can hold a figure — money comes back as one of four words, not
+a number — so a screenshot cannot decide somebody else's ceiling even when the
+chat contains one. Each person gives their own number to their own agent, on the
+one screen that has always been for exactly that.
+
+Nothing about a solo run changed. A browser that has not joined a room is still
+Richard, still in the demo session, and still walks the four screens in order.
+
+**The trust model, plainly:** the room code *is* the credential. Anyone with the
+link can take any free seat, and the cookie that remembers which seat is not
+signed. That is the same trust model `?viewer=` has always had, and about the
+right amount of ceremony for a trip with friends — it is not a login.
+
 ## Running it
 
 ```bash
@@ -61,6 +83,8 @@ Every variable is optional. Copy `.env.example` to `.env.local` to set any.
 | `TWOCENTS_FORCE_OFFLINE` | *(unset)* | Set to `1` to use the scripted run even when a key is present. Useful for rehearsing the demo. |
 | `TWOCENTS_MODEL_FAST` | `claude-haiku-4-5` | The small model. Briefing replies, voice previews, and every negotiation turn. |
 | `TWOCENTS_MODEL_SMART` | `claude-sonnet-4-5` | The large model. The final plan and the four private reports, and nothing else. |
+| `TWOCENTS_MODEL_VISION` | `claude-opus-5` | The model that reads the group-chat screenshot. One call per room, before the demo clock starts. |
+| `TWOCENTS_CHAT_PHOTO_TIMEOUT_MS` | `60000` | Ceiling on that one call. Four screenshots do not fit in the 20s the rest get. |
 | `TWOCENTS_LLM_TIMEOUT_MS` | `20000` | Wall-clock ceiling on one model call. A call that runs past it falls back to the scripted answer. Read per call, so a change takes effect without a restart. |
 | `TWOCENTS_BEAT_MS` | `1100` | The Town screen's pace at 1x, in milliseconds per spoken line. Lower it for a faster room. |
 

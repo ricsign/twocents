@@ -8,6 +8,9 @@ state, which is the right call for a 3-minute demo that must reset instantly.
 src/
   app/
     page.tsx              title screen
+    start/                step 0: the group chat, read and corrected
+    join/[code]/          "who are you?" — the only dynamic segment
+    lobby/                who has joined, who has briefed, the link to send
     brief/                step 1
     personality/          step 2
     town/                 step 3
@@ -16,6 +19,9 @@ src/
       brief/route.ts      streams the private briefing chat
       negotiate/route.ts  SSE stream of the negotiation
       session/route.ts    read/reset the demo session, narrowed to one viewer
+      ingest/route.ts     screenshots in, a draft out — writes nothing
+      room/route.ts       a draft in, a room out
+      room/claim/route.ts "that's me" — the only cookie writer besides judges
   components/
     ui/                   design-system primitives (TopBar, PixelButton, Sprite, icons)
     brief/ personality/ town/ plan/
