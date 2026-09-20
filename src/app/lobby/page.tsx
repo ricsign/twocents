@@ -21,8 +21,10 @@ export const dynamic = "force-dynamic";
  * there is nobody to wait for — so it is sent to the start of that instead of
  * shown an empty room.
  */
-export default async function LobbyPage() {
-  const { sessionId, seat, joined } = await currentRoom();
+export default async function LobbyPage(
+  { searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> },
+) {
+  const { sessionId, seat, joined, url } = await currentRoom(searchParams);
   if (!joined) redirect("/start");
 
   const session = resolveSession(sessionId);
@@ -32,7 +34,7 @@ export default async function LobbyPage() {
   return (
     <div className="flex min-h-screen flex-col bg-parchment">
       <TopBar step={1} tripName={session.tripName} />
-      <LobbyScreen initialView={sessionViewFor(session, seat)} code={session.id} />
+      <LobbyScreen initialView={sessionViewFor(session, seat)} code={session.id} url={url} />
     </div>
   );
 }

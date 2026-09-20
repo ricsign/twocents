@@ -223,6 +223,7 @@ function Picker({
   onRead: () => void;
 }) {
   const reading = stage === "reading";
+  const [dragging, setDragging] = useState(false);
 
   return (
     <>
@@ -237,29 +238,49 @@ function Picker({
         </p>
       </header>
 
-      <div className="flex flex-col gap-4 border-[3px] border-ink bg-card p-5">
-        <div className="flex flex-wrap items-center gap-3">
-          <PixelButton
-            variant="dark"
-            onClick={() => fileRef.current?.click()}
-            disabled={reading || images.length >= MAX_IMAGES}
-          >
-            {images.length === 0 ? "CHOOSE SCREENSHOTS" : "ADD ANOTHER"}
-          </PixelButton>
-          <span className="disp text-[7px] text-bark">
-            {images.length} OF {MAX_IMAGES}
-          </span>
-        </div>
-
+      {/* One target that is both a drop zone and a button. The label wraps the
+          hidden input, so a click anywhere in it opens the picker without any
+          JavaScript, and the drag handlers add the other half. Keyboard users
+          get the input's own focus ring rather than a div pretending to be a
+          control. */}
+      <label
+        onDragOver={(event) => {
+          event.preventDefault();
+          if (!reading) setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(event) => {
+          event.preventDefault();
+          setDragging(false);
+          if (!reading) onPick(event.dataTransfer.files);
+        }}
+        className={`flex cursor-pointer flex-col items-center gap-3 border-[3px] border-dashed p-8 text-center transition-colors ${
+          dragging ? "border-sky bg-paper" : "border-ink bg-card"
+        } ${reading || images.length >= MAX_IMAGES ? "cursor-default opacity-60" : ""}`}
+      >
         <input
           ref={fileRef}
           type="file"
           accept={ACCEPT_ATTRIBUTE}
           multiple
-          className="hidden"
+          disabled={reading || images.length >= MAX_IMAGES}
+          className="sr-only"
           onChange={(event) => onPick(event.target.files)}
         />
 
+        <span className="disp text-[11px] text-ink">
+          {dragging ? "DROP THEM HERE" : "DRAG SCREENSHOTS IN"}
+        </span>
+        <span className="text-[14px] leading-relaxed text-bark">
+          or <span className="font-bold underline">click to choose</span> — up to{" "}
+          {MAX_IMAGES}, PNG or JPEG
+        </span>
+        <span className="disp text-[7px] text-bark">
+          {images.length} OF {MAX_IMAGES} ADDED
+        </span>
+      </label>
+
+      <div className="flex flex-col gap-4 border-[3px] border-ink bg-card p-5">
         {images.length > 0 ? (
           <ul className="m-0 flex list-none flex-wrap gap-3 p-0">
             {images.map((image, index) => (

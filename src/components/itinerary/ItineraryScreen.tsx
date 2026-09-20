@@ -31,6 +31,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PixelLink } from "@/components/ui/PixelButton";
+import { withIdentity, type UrlIdentity } from "@/lib/room/links";
 
 type Status = "checking" | "building" | "ready" | "blocked" | "error";
 
@@ -185,7 +186,14 @@ function ProgressBar({ progress }: { progress: number }) {
   );
 }
 
-export function ItineraryScreen({ sessionId }: { sessionId?: string }) {
+export function ItineraryScreen({
+  sessionId,
+  url,
+}: {
+  sessionId?: string;
+  /** Threaded back into this screen's links, so a tab keeps its own identity. */
+  url?: UrlIdentity;
+}) {
   const [status, setStatus] = useState<Status>("checking");
   const [built, setBuilt] = useState<Built | null>(null);
   const [waitingOn, setWaitingOn] = useState<string[]>([]);
@@ -310,7 +318,7 @@ export function ItineraryScreen({ sessionId }: { sessionId?: string }) {
           {waiting ? (
             <ProgressBar progress={progressFor(elapsed)} />
           ) : (
-            <PixelLink href="/plan" variant="ghost" className="h-12 px-6">
+            <PixelLink href={withIdentity("/plan", url)} variant="ghost" className="h-12 px-6">
               BACK TO THE PLAN
             </PixelLink>
           )}
@@ -333,7 +341,7 @@ export function ItineraryScreen({ sessionId }: { sessionId?: string }) {
         </div>
 
         <div className="flex shrink-0 items-center gap-3">
-          <PixelLink href="/plan" variant="ghost" className="h-14 px-5">
+          <PixelLink href={withIdentity("/plan", url)} variant="ghost" className="h-14 px-5">
             BACK
           </PixelLink>
           {/* A plain anchor, not next/link: this is a file to fetch, not a route

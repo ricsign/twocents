@@ -46,6 +46,7 @@ import { useCallback, useEffect, useState } from "react";
 import { PixelLink } from "@/components/ui/PixelButton";
 import { sessionViewSchema } from "@/lib/session-view";
 import { planViewFrom, type PlanView } from "./view";
+import { withIdentity, type UrlIdentity } from "@/lib/room/links";
 import { AgentReportCard, AgentReportPending } from "./AgentReportCard";
 import { ApprovalRow } from "./ApprovalRow";
 import { FairnessMeter } from "./FairnessMeter";
@@ -168,10 +169,14 @@ async function runHeadless(signal: AbortSignal, sessionId?: string): Promise<boo
 export function PlanScreen({
   initialView = null,
   sessionId,
+  url,
   canRun = true,
 }: {
   initialView?: PlanView | null;
   sessionId?: string;
+  /** Threaded back into this screen's links, so a tab keeps its own identity. */
+  url?: UrlIdentity;
+
   /**
    * Whether this browser may start the negotiation when it finds none.
    *
@@ -356,11 +361,12 @@ export function PlanScreen({
             you={view.you}
             approvals={view.approvals}
             sessionId={view.sessionId}
+            url={url}
             names={view.names}
           />
           <div className="flex flex-wrap gap-3">
             <PixelLink
-              href="/town"
+              href={withIdentity("/town", url)}
               variant="ghost"
               className="h-12 flex-1 px-4 text-center text-[9px] leading-tight"
             >

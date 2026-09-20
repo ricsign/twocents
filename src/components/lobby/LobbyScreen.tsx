@@ -21,6 +21,7 @@ import { sessionViewSchema, type SessionView } from "@/lib/session-view";
 import { Avatar } from "@/components/ui/Sprite";
 import { PixelButton, PixelLink } from "@/components/ui/PixelButton";
 import { CheckIcon } from "@/components/ui/PixelIcons";
+import { withIdentity, type UrlIdentity } from "@/lib/room/links";
 
 /** Four phones at 0.5rps is nothing, and it reads as live. */
 const POLL_MS = 2000;
@@ -28,9 +29,12 @@ const POLL_MS = 2000;
 export function LobbyScreen({
   initialView,
   code,
+  url,
 }: {
   initialView: SessionView;
   code: string;
+  /** Threaded back into this screen's links, so a tab keeps its own identity. */
+  url?: UrlIdentity;
 }) {
   const router = useRouter();
   const [view, setView] = useState<SessionView>(initialView);
@@ -75,8 +79,8 @@ export function LobbyScreen({
    * session, seen by three polls, and three browsers navigate themselves.
    */
   useEffect(() => {
-    if (view.runStartedAt !== null) router.push("/town");
-  }, [router, view.runStartedAt]);
+    if (view.runStartedAt !== null) router.push(withIdentity("/town", url));
+  }, [router, url, view.runStartedAt]);
 
   const seats = PARTICIPANT_IDS.map((id) => {
     if (id === view.viewerId) {
@@ -166,13 +170,13 @@ export function LobbyScreen({
       </ul>
 
       {!view.you.briefed ? (
-        <PixelLink href="/brief" variant="primary" raised className="h-16 w-full text-[11px]">
+        <PixelLink href={withIdentity("/brief", url)} variant="primary" raised className="h-16 w-full text-[11px]">
           BRIEF YOUR AGENT →
         </PixelLink>
       ) : view.you.isHost ? (
         <>
           <PixelLink
-            href="/town"
+            href={withIdentity("/town", url)}
             variant={ready ? "primary" : "ghost"}
             raised
             className="h-16 w-full text-[11px]"
@@ -193,7 +197,7 @@ export function LobbyScreen({
         </p>
       )}
 
-      <PixelLink href="/personality" variant="ghost" className="h-11 px-4 text-[9px]">
+      <PixelLink href={withIdentity("/personality", url)} variant="ghost" className="h-11 px-4 text-[9px]">
         CHANGE HOW YOUR AGENT SOUNDS
       </PixelLink>
     </main>

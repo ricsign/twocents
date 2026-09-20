@@ -32,6 +32,7 @@ import type { NextResponse } from "next/server";
 import { YOU, type ParticipantId } from "@/lib/characters";
 import { normalizeRoomCode } from "@/lib/room/codes";
 import { DEFAULT_SESSION_ID, getOrCreateDefault, getSession } from "@/lib/session";
+import type { UrlIdentity } from "@/lib/room/links";
 import { participantIdSchema, type DemoSession } from "@/lib/types";
 
 /** Which room this browser last joined. */
@@ -50,6 +51,15 @@ export interface RoomIdentity {
   seat: ParticipantId;
   /** False when both values came from the fallback — i.e. a solo run. */
   joined: boolean;
+  /**
+   * The identity to thread back into this page's own links, if any.
+   *
+   * Empty for a browser relying on its cookie, which is everybody who joined
+   * normally — their links stay clean and shareable. Populated only when the
+   * URL named a seat or a room, which is how one browser holds two identities
+   * in two tabs.
+   */
+  url?: UrlIdentity;
 }
 
 // Re-exported so a caller that already imports this module for `currentRoom`
@@ -69,9 +79,32 @@ export { newRoomCode, normalizeRoomCode } from "@/lib/room/codes";
  * is a route handler and a redirect rather than a page that quietly signs you
  * in.
  */
-export async function currentRoom(): Promise<RoomIdentity> {
+export async function currentRoom(
+  searchParams?: Promise<Record<string, string | string[] | undefined>>,
+): Promise<RoomIdentity> {
   const jar = await cookies();
-  return identityFrom(jar.get(ROOM_COOKIE)?.value, jar.get(SEAT_COOKIE)?.value);
+  const fromJar = identityFrom(jar.get(ROOM_COOKIE)?.value, jar.get(SEAT_COOKIE)?.value);
+  if (!searchParams) return fromJar;
+
+  // An identity named in the URL outranks the jar, because a jar is shared by
+  // every tab in a browser and a URL is not. See `lib/room/links.ts`.
+  const asked = await searchParams;
+  const room = normalizeRoomCode(one(asked.room)) ?? fromJar.sessionId;
+  const seat = seatOf(one(asked.seat)) ?? fromJar.seat;
+  const named = Boolean(one(asked.room)) || Boolean(one(asked.seat));
+
+  return {
+    sessionId: room,
+    seat,
+    joined: fromJar.joined || (named && room !== DEFAULT_SESSION_ID),
+    /** What to put back into the next link, so the tab keeps its identity. */
+    url: named ? { room: one(asked.room) ?? null, seat: seatOf(one(asked.seat)) } : {},
+  };
+}
+
+/** A search param, whichever of the two shapes Next hands it over in. */
+function one(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
 }
 
 /**

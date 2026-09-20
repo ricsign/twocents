@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { DisplayNames, ParticipantId } from "@/lib/characters";
 import type { Brief, BriefMessage } from "@/lib/types";
+import { withIdentity, type UrlIdentity } from "@/lib/room/links";
 import { PixelButton, PixelLink } from "@/components/ui/PixelButton";
 import { AgentKnowsPanel } from "./AgentKnowsPanel";
 import { BriefChat } from "./BriefChat";
@@ -53,6 +54,7 @@ function hasBeenBriefed(brief: Brief, messages: readonly ChatMessage[]): boolean
 export function BriefScreen({
   participantId,
   sessionId,
+  url,
   briefed,
   initialMessages,
   initialBrief,
@@ -69,6 +71,8 @@ export function BriefScreen({
    * they are not in. The server still checks it against their seat.
    */
   sessionId: string;
+  /** Threaded back into this screen's links, so a tab keeps its own identity. */
+  url?: UrlIdentity;
   briefed: ParticipantId[];
   initialMessages: ChatMessage[];
   initialBrief: Brief;
@@ -237,7 +241,7 @@ export function BriefScreen({
 
           {ready ? (
             <PixelLink
-              href="/personality"
+              href={withIdentity("/personality", url)}
               variant="primary"
               raised
               className="h-16 w-full"

@@ -21,8 +21,10 @@ export const dynamic = "force-dynamic";
  * to get through. Adding a fifth pip would change every screen's header to
  * announce a step that only exists after the demo is already over.
  */
-export default async function ItineraryPage() {
-  const { sessionId } = await currentRoom();
+export default async function ItineraryPage(
+  { searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> },
+) {
+  const { sessionId, url } = await currentRoom(searchParams);
   const session = resolveSession(sessionId);
   // A room that is gone is a dead link, not an empty room.
   if (!session) notFound();
@@ -30,7 +32,7 @@ export default async function ItineraryPage() {
   return (
     <div className="flex min-h-screen flex-col bg-parchment">
       <TopBar step={4} tripName={session.tripName} />
-      <ItineraryScreen sessionId={sessionId} />
+      <ItineraryScreen sessionId={sessionId} url={url} />
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { PersonalityScreen } from "@/components/personality/PersonalityScreen";
 import { sampleTopicFor } from "@/components/personality/sampleLine";
 import { hasBriefed } from "@/lib/flow";
 import { currentRoom, resolveSession } from "@/lib/room/identity";
+import { withIdentity } from "@/lib/room/links";
 import { displayNamesFromView, sessionViewFor } from "@/lib/session-view";
 
 export const metadata: Metadata = {
@@ -37,14 +38,16 @@ export const dynamic = "force-dynamic";
  * from a group chat passes the guard, because its agent does have something to
  * argue from — a guess the person is about to correct, not nothing at all.
  */
-export default async function PersonalityPage() {
-  const { sessionId, seat } = await currentRoom();
+export default async function PersonalityPage(
+  { searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> },
+) {
+  const { sessionId, seat, url } = await currentRoom(searchParams);
   const session = resolveSession(sessionId);
   // A room that is gone is a dead link, not an empty room.
   if (!session) notFound();
 
   const view = sessionViewFor(session, seat);
-  if (!hasBriefed(view.you.brief)) redirect("/brief");
+  if (!hasBriefed(view.you.brief)) redirect(withIdentity("/brief", url));
 
   return (
     <div className="flex min-h-screen flex-col bg-parchment">
@@ -52,6 +55,7 @@ export default async function PersonalityPage() {
       <PersonalityScreen
         participantId={seat}
         sessionId={sessionId}
+        url={url}
         initialPersonality={view.you.personality}
         topic={sampleTopicFor(view)}
         neverSays={

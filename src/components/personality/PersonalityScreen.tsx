@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { DisplayNames, ParticipantId } from "@/lib/characters";
 import type { Personality } from "@/lib/types";
+import { withIdentity, type UrlIdentity } from "@/lib/room/links";
 import { PixelButton } from "@/components/ui/PixelButton";
 import { PersonalityStage } from "./PersonalityStage";
 import { PresetRow } from "./PresetRow";
@@ -93,6 +94,7 @@ const SLIDERS: { key: SliderKey; low: string; high: string }[] = [
 export function PersonalityScreen({
   participantId,
   sessionId,
+  url,
   initialPersonality,
   topic,
   neverSays,
@@ -101,6 +103,9 @@ export function PersonalityScreen({
   participantId: ParticipantId;
   /** The room this agent belongs to; sent so a save cannot land in the demo. */
   sessionId: string;
+  /** Threaded back into this screen's links, so a tab keeps its own identity. */
+  url?: UrlIdentity;
+
   /** The personality stored in the session, not a seed. A reload must not revert it. */
   initialPersonality: Personality;
   /** What this room is arguing about, so the preview argues about that too. */
@@ -200,7 +205,7 @@ export function PersonalityScreen({
       after(SAVE_TIMEOUT_MS),
     ]);
     router.refresh();
-    router.push("/town");
+    router.push(withIdentity("/town", url));
   }
 
   return (
@@ -246,7 +251,7 @@ export function PersonalityScreen({
         </div>
 
         <div className="mt-auto flex flex-wrap items-center justify-between gap-6 pt-2">
-          <Link href="/brief" className="text-[15px] font-bold text-bark no-underline">
+          <Link href={withIdentity("/brief", url)} className="text-[15px] font-bold text-bark no-underline">
             ← Back to the brief
           </Link>
           <PixelButton

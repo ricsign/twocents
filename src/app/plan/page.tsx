@@ -22,8 +22,10 @@ export const dynamic = "force-dynamic";
  * the run has not happened yet this hands over null and `PlanScreen` goes and
  * makes it happen.
  */
-export default async function PlanPage() {
-  const { sessionId, seat } = await currentRoom();
+export default async function PlanPage(
+  { searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> },
+) {
+  const { sessionId, seat, url } = await currentRoom(searchParams);
   const session = resolveSession(sessionId);
   // A room that is gone is a dead link, not an empty room.
   if (!session) notFound();
@@ -34,6 +36,7 @@ export default async function PlanPage() {
       <PlanScreen
         initialView={planViewFor(session, seat)}
         sessionId={sessionId}
+        url={url}
         // Only the host may kick off a headless run, and only before one has
         // started: four people landing here early would otherwise each start
         // their own negotiation on the same session.

@@ -24,6 +24,7 @@ import assert from "node:assert/strict";
 import { PARTICIPANT_IDS } from "@/lib/characters";
 import { hasBriefed } from "@/lib/flow";
 import { normalizeRoomCode, newRoomCode } from "@/lib/room/codes";
+import { withIdentity } from "@/lib/room/links";
 import { seedRoom, splurgyFor, transcriptFor } from "@/lib/room/seed";
 import type { SeatBrief } from "@/lib/room/seat";
 import { seatsFrom } from "@/lib/ingest/seats";
@@ -85,6 +86,23 @@ check("the sanitiser that names the file cannot collapse two codes into one", ()
     const code = newRoomCode();
     assert.equal(sanitize(code), code, `${code} is not its own filename`);
   }
+});
+
+check("a link carries an identity only when one was explicitly named", () => {
+  // The rule that keeps the four-phone case untouched: somebody who joined
+  // normally relies on their cookie and keeps clean, shareable URLs.
+  assert.equal(withIdentity("/brief"), "/brief");
+  assert.equal(withIdentity("/brief", {}), "/brief");
+  assert.equal(withIdentity("/brief", { seat: null, room: null }), "/brief");
+
+  // And the escape hatch that makes one browser able to hold two identities:
+  // a jar belongs to a browser, a URL belongs to a tab.
+  assert.equal(withIdentity("/brief", { seat: "maya" }), "/brief?seat=maya");
+  assert.equal(
+    withIdentity("/lobby", { room: "MJ4K7P", seat: "jordan" }),
+    "/lobby?room=MJ4K7P&seat=jordan",
+  );
+  assert.equal(withIdentity("/x?v=1", { seat: "sam" }), "/x?v=1&seat=sam");
 });
 
 /* -------------------------------------------------------------------------- */

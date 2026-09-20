@@ -19,6 +19,7 @@ import { useRouter } from "next/navigation";
 import { CHARACTERS, type ParticipantId } from "@/lib/characters";
 import { Avatar } from "@/components/ui/Sprite";
 import { PixelButton } from "@/components/ui/PixelButton";
+import { withIdentity } from "@/lib/room/links";
 
 export interface JoinableSeat {
   participantId: ParticipantId;
@@ -63,10 +64,16 @@ export function SeatPicker({
       }
       if (!response.ok) throw new Error(`claim responded ${response.status}`);
 
-      // `router.refresh()` first: the cookie was set on this response, and the
-      // lobby is a server component that reads it.
+      // Onward carrying the seat, not just the cookie.
+      //
+      // The cookie was set on that response, and it is enough on a phone. It is
+      // not enough on the laptop somebody is testing with: a jar belongs to a
+      // browser, so claiming a second seat in a second tab rewrites the first
+      // tab's identity and both tabs quietly become the same person. Naming the
+      // seat in the URL gives each tab something of its own, and every link
+      // from here carries it forward.
       router.refresh();
-      router.push("/lobby");
+      router.push(withIdentity("/lobby", { room: code, seat: participantId }));
     } catch {
       setProblem("Could not join. Try that again.");
       setBusy(null);

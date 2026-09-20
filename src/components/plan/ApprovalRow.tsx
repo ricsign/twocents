@@ -15,17 +15,22 @@ import type { DisplayNames, ParticipantId } from "@/lib/characters";
 import { PARTICIPANT_IDS, displayNameFor } from "@/lib/characters";
 import { Avatar } from "@/components/ui/Sprite";
 import { PixelLink } from "@/components/ui/PixelButton";
+import { withIdentity, type UrlIdentity } from "@/lib/room/links";
 
 export function ApprovalRow({
   you,
   approvals,
   sessionId,
+  url,
   names,
 }: {
   you: ParticipantId;
   /** Who has approved, as the session knows it. */
   approvals: Record<ParticipantId, boolean>;
   sessionId?: string;
+  /** Threaded back into this screen's links, so a tab keeps its own identity. */
+  url?: UrlIdentity;
+
   /** What the other three are called. You are always "You". */
   names?: DisplayNames;
 }) {
@@ -124,7 +129,7 @@ export function ApprovalRow({
           place, because a button that was there all along but greyed out reads
           as something withheld; this reads as something earned. */}
       {allIn && !failed ? (
-        <PixelLink href="/itinerary" variant="gold" raised className="h-16 w-full text-[11px]">
+        <PixelLink href={withIdentity("/itinerary", url)} variant="gold" raised className="h-16 w-full text-[11px]">
           BUILD THE ITINERARY →
         </PixelLink>
       ) : null}

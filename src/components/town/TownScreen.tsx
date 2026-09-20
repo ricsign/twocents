@@ -21,6 +21,7 @@ import type { DisplayNames, ParticipantId } from "@/lib/characters";
 import { PixelLink } from "@/components/ui/PixelButton";
 import { useNegotiation, type FinishedRun } from "@/hooks/useNegotiation";
 import { useRoomTurns } from "./useRoomTurns";
+import { withIdentity, type UrlIdentity } from "@/lib/room/links";
 import { Room } from "./Room";
 import { TownControls } from "./TownControls";
 import { Transcript } from "./Transcript";
@@ -29,6 +30,7 @@ export function TownScreen({
   names,
   sessionId,
   you,
+  url,
   canRun = true,
   finished = null,
 }: {
@@ -38,6 +40,9 @@ export function TownScreen({
   finished?: FinishedRun | null;
   /** Whose screen this is. Only used to label their own seat in the room. */
   you?: ParticipantId;
+  /** Threaded back into this screen's links, so a tab keeps its own identity. */
+  url?: UrlIdentity;
+
   /**
    * Whether this browser is the one that runs the negotiation.
    *
@@ -125,7 +130,7 @@ export function TownScreen({
 
         {hasPlan ? (
           <PixelLink
-            href="/plan"
+            href={withIdentity("/plan", url)}
             variant="primary"
             raised
             className="h-[60px] w-full text-center leading-tight"

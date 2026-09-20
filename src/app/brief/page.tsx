@@ -38,8 +38,10 @@ function briefedIn(session: DemoSession): ParticipantId[] {
  * caveat that we read it rather than heard it — and the first thing they type
  * replaces the guess and clears the caveat.
  */
-export default async function BriefPage() {
-  const { sessionId, seat } = await currentRoom();
+export default async function BriefPage(
+  { searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> },
+) {
+  const { sessionId, seat, url } = await currentRoom(searchParams);
   const session = resolveSession(sessionId);
   // A room that is gone is a dead link, not an empty room: minting one here
   // would answer a stale join URL with four strangers.
@@ -54,6 +56,7 @@ export default async function BriefPage() {
       <BriefScreen
         participantId={seat}
         sessionId={sessionId}
+        url={url}
         briefed={briefedIn(session)}
         initialMessages={chatMessagesFrom(you.brief.rawTranscript)}
         initialBrief={you.brief}
