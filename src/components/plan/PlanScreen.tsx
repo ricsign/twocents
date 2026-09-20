@@ -135,17 +135,20 @@ async function pollForPlan(
  * Runs the negotiation with nothing on screen, then resolves.
  *
  * A 409 means another screen already holds this session's run. Resolving
- * rather than throwing hands the caller straight to `waitForPlan`, which is
- * what it would do with our own run anyway.
+ * rather than throwing hands the caller straight to the poll, which is what
+ * it would do with our own run anyway.
+ *
+ * Returns whether this call is the one doing the work, because a refusal is
+ * only good news while the run that refused us is alive.
  */
-async function runHeadless(signal: AbortSignal): Promise<void> {
+async function runHeadless(signal: AbortSignal): Promise<boolean> {
   const res = await fetch("/api/negotiate", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ speed: HEADLESS_SPEED }),
     signal,
   });
-  if (res.status === ALREADY_RUNNING) return;
+  if (res.status === ALREADY_RUNNING) return false;
   if (!res.ok || !res.body) throw new Error(`negotiate responded ${res.status}`);
 
   // Every frame is discarded: the route writes the result to the session, and
@@ -156,6 +159,7 @@ async function runHeadless(signal: AbortSignal): Promise<void> {
     const { done } = await reader.read();
     if (done) break;
   }
+  return true;
 }
 
 export function PlanScreen({
@@ -196,7 +200,28 @@ export function PlanScreen({
     ]);
     if (signal.aborted) return;
 
+    const ran = settled[0];
     const poll = settled[1];
+    if (poll.status === "fulfilled" && poll.value) return;
+
+    // Refused, and then nothing arrived.
+    //
+    // A 409 says somebody else's run is writing the plan this screen is
+    // waiting for, which is true right up until that run dies. A presenter
+    // walking from the town to the plan mid-negotiation does exactly that:
+    // the town's stream is abandoned, and this screen sat watching a session
+    // nobody was writing any more. Its lease is released on abort now, so
+    // asking a second time is asking a route that will answer.
+    if (ran.status === "fulfilled" && ran.value === false) {
+      const retried = await Promise.allSettled([
+        runHeadless(signal),
+        pollForPlan(signal, publish),
+      ]);
+      if (signal.aborted) return;
+      const retriedPoll = retried[1];
+      if (retriedPoll.status === "fulfilled" && retriedPoll.value) return;
+    }
+
     if (poll.status === "rejected" || !poll.value) {
       throw new Error("the negotiation produced no plan");
     }
