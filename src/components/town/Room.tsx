@@ -58,6 +58,7 @@ export function Room({
   elapsedMs,
   live,
   names,
+  you,
   children,
 }: {
   currentSpeaker: ParticipantId | null;
@@ -70,6 +71,8 @@ export function Room({
   live: boolean;
   /** What the four people are called on their name tags. */
   names?: DisplayNames;
+  /** Whose screen this is, so one avatar is tagged "· YOU". */
+  you?: ParticipantId;
   /** The speed controls, so they sit inside the room's frame, unscaled. */
   children?: ReactNode;
 }) {
@@ -127,6 +130,7 @@ export function Room({
             speaking={currentSpeaker === id}
             thinking={thinkingSpeaker === id}
             names={names}
+            viewer={you}
           />
         ))}
 

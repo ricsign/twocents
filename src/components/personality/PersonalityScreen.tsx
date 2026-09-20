@@ -35,11 +35,14 @@ const SLIDERS: { key: SliderKey; low: string; high: string }[] = [
 
 export function PersonalityScreen({
   participantId,
+  sessionId,
   initialPersonality,
   initialLine,
   names,
 }: {
   participantId: ParticipantId;
+  /** The room this agent belongs to; sent so a save cannot land in the demo. */
+  sessionId: string;
   initialPersonality: Personality;
   /** The line on the first frame, so the screen opens on the designed one. */
   initialLine: string;
@@ -98,6 +101,7 @@ export function PersonalityScreen({
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         action: "updatePersonality",
+        sessionId,
         // Writing your own row. The route refuses anything else.
         viewer: participantId,
         participantId,

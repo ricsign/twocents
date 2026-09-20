@@ -29,8 +29,24 @@ export function ApprovalRow({
   /** What the other three are called. You are always "You". */
   names?: DisplayNames;
 }) {
-  const [mine, setMine] = useState(approvals[you] ?? false);
+  const [tapped, setTapped] = useState(false);
   const [failed, setFailed] = useState(false);
+
+  /**
+   * Approved if you tapped, or if the session already says so.
+   *
+   * Derived rather than synchronised, and the "or" is doing real work in both
+   * directions. The tap has to show instantly, because it is the thing the
+   * person is watching — but the plan screen now polls for the other three,
+   * and a poll that left before this write landed comes back saying "not
+   * approved" a beat after the button went green. Reading either as yes means
+   * that answer can never walk the button backwards, and it equally means a
+   * reload, or an approval made on another device, arrives already done.
+   *
+   * The one thing that clears it is a room-wide reset, which replaces this
+   * screen rather than updating it.
+   */
+  const mine = tapped || (approvals[you] ?? false);
 
   // You sit last, the way the mockup reads: the others, then the gap you fill.
   const order: ParticipantId[] = [
@@ -41,7 +57,7 @@ export function ApprovalRow({
 
   async function approve(): Promise<void> {
     if (mine) return;
-    setMine(true);
+    setTapped(true);
     setFailed(false);
     try {
       const res = await fetch("/api/session", {
@@ -58,7 +74,7 @@ export function ApprovalRow({
       });
       if (!res.ok) throw new Error(`approve responded ${res.status}`);
     } catch {
-      setMine(false);
+      setTapped(false);
       setFailed(true);
     }
   }

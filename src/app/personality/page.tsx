@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { TopBar } from "@/components/ui/TopBar";
 import { PersonalityScreen } from "@/components/personality/PersonalityScreen";
-import { YOU } from "@/lib/characters";
-import { getOrCreateDefault } from "@/lib/session";
+import { notFound } from "next/navigation";
+import { currentRoom, resolveSession } from "@/lib/room/identity";
 import { displayNamesOf } from "@/lib/types";
 
 export const metadata: Metadata = {
@@ -28,15 +28,21 @@ export const dynamic = "force-dynamic";
  * agent the person actually built. `PersonalityScreen` saves every change to
  * the same place half a second after the hand stops.
  */
-export default function PersonalityPage() {
-  const session = getOrCreateDefault();
+export default async function PersonalityPage() {
+  const { sessionId, seat } = await currentRoom();
+  const session = resolveSession(sessionId);
+  // A room that is gone is a dead link, not an empty room.
+  if (!session) notFound();
+  const you = session.participants[seat];
+  if (!you) notFound();
 
   return (
     <div className="flex min-h-screen flex-col bg-parchment">
       <TopBar step={2} tripName={session.tripName} />
       <PersonalityScreen
-        participantId={YOU}
-        initialPersonality={session.participants[YOU].personality}
+        participantId={seat}
+        sessionId={sessionId}
+        initialPersonality={you.personality}
         initialLine={OPENING_LINE}
         names={displayNamesOf(session)}
       />

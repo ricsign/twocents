@@ -22,7 +22,6 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { YOU } from "@/lib/characters";
 import { sessionViewSchema } from "@/lib/session-view";
 import { planViewFrom, type PlanView } from "./view";
 import { AgentReportCard } from "./AgentReportCard";
@@ -34,6 +33,9 @@ import { RunStats } from "./RunStats";
 /** Fast-forward for the headless run. `/api/negotiate` clamps speed at 8x. */
 const HEADLESS_SPEED = 8;
 
+/** How often to look for the other three taps, and for a plan someone else ran. */
+const APPROVAL_POLL_MS = 3000;
+
 type Status = "loading" | "negotiating" | "ready" | "error";
 
 /**
@@ -42,19 +44,20 @@ type Status = "loading" | "negotiating" | "ready" | "error";
  * The route narrows before it answers — the response carries your brief and
  * your report and nobody else's — so this is a reshaping, not a redaction.
  */
-async function loadView(): Promise<PlanView | null> {
-  const res = await fetch(`/api/session?viewer=${YOU}`, { cache: "no-store" });
+async function loadView(sessionId?: string): Promise<PlanView | null> {
+  const query = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : "";
+  const res = await fetch(`/api/session${query}`, { cache: "no-store" });
   if (!res.ok) return null;
   const parsed = sessionViewSchema.safeParse((await res.json()) as unknown);
   return parsed.success ? planViewFrom(parsed.data) : null;
 }
 
 /** Runs the negotiation with nothing on screen, then resolves. */
-async function runHeadless(signal: AbortSignal): Promise<void> {
+async function runHeadless(signal: AbortSignal, sessionId?: string): Promise<void> {
   const res = await fetch("/api/negotiate", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ speed: HEADLESS_SPEED }),
+    body: JSON.stringify({ ...(sessionId ? { sessionId } : {}), speed: HEADLESS_SPEED }),
     signal,
   });
   if (!res.ok || !res.body) throw new Error(`negotiate responded ${res.status}`);
@@ -71,31 +74,51 @@ async function runHeadless(signal: AbortSignal): Promise<void> {
 
 export function PlanScreen({
   initialView = null,
+  sessionId,
+  canRun = true,
 }: {
   initialView?: PlanView | null;
+  sessionId?: string;
+  /**
+   * Whether this browser may start the negotiation when it finds none.
+   *
+   * This screen has always run the room headlessly at 8x if it opened without
+   * a plan, which is right for one person arriving straight at `/plan` — and
+   * badly wrong for four. Everyone who opened this page early would start
+   * their own full negotiation over the same session, on top of whatever the
+   * town is already running. The host runs it; the rest wait and poll.
+   */
+  canRun?: boolean;
 }) {
   const [view, setView] = useState<PlanView | null>(initialView);
   const [status, setStatus] = useState<Status>(initialView ? "ready" : "loading");
 
-  const bootstrap = useCallback(async (signal: AbortSignal): Promise<void> => {
-    const existing = await loadView();
-    if (signal.aborted) return;
-    if (existing) {
-      setView(existing);
+  const bootstrap = useCallback(
+    async (signal: AbortSignal): Promise<void> => {
+      const existing = await loadView(sessionId);
+      if (signal.aborted) return;
+      if (existing) {
+        setView(existing);
+        setStatus("ready");
+        return;
+      }
+
+      setStatus("negotiating");
+      // Not this browser's run to start. The poll below picks the plan up when
+      // whoever is running it finishes.
+      if (!canRun) return;
+
+      await runHeadless(signal, sessionId);
+      if (signal.aborted) return;
+
+      const finished = await loadView(sessionId);
+      if (signal.aborted) return;
+      if (!finished) throw new Error("the negotiation produced no plan");
+      setView(finished);
       setStatus("ready");
-      return;
-    }
-
-    setStatus("negotiating");
-    await runHeadless(signal);
-    if (signal.aborted) return;
-
-    const finished = await loadView();
-    if (signal.aborted) return;
-    if (!finished) throw new Error("the negotiation produced no plan");
-    setView(finished);
-    setStatus("ready");
-  }, []);
+    },
+    [canRun, sessionId],
+  );
 
   useEffect(() => {
     // Nothing to fetch when the server already handed over a finished plan.
@@ -112,6 +135,44 @@ export function PlanScreen({
     })();
     return () => controller.abort();
   }, [bootstrap, initialView]);
+
+  /**
+   * Other people's taps, and other people's plan.
+   *
+   * Two things arrive from somewhere other than this browser once a room has
+   * four humans in it: the plan, when the host's run lands, and each of the
+   * other three approvals. Neither has an event to ride in on, so this polls
+   * until the room is settled and then stops — an approval is a one-way door
+   * and there is nothing to watch for afterwards.
+   */
+  useEffect(() => {
+    const everyoneIn = view !== null && Object.values(view.approvals).every(Boolean);
+    if (everyoneIn) return;
+
+    let stopped = false;
+    let timer: number | null = null;
+
+    async function poll(): Promise<void> {
+      try {
+        const next = await loadView(sessionId);
+        // A poll may only ever add to what is on screen. `loadView` returns
+        // null while the agents are still out, and letting that overwrite a
+        // plan already being read would blank the screen under somebody.
+        if (next && !stopped) setView(next);
+        if (next && !stopped) setStatus("ready");
+      } catch {
+        // A dropped poll costs one beat; the next read is of the whole view.
+      } finally {
+        if (!stopped) timer = window.setTimeout(() => void poll(), APPROVAL_POLL_MS);
+      }
+    }
+
+    timer = window.setTimeout(() => void poll(), APPROVAL_POLL_MS);
+    return () => {
+      stopped = true;
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [sessionId, view]);
 
   if (!view) {
     return (
@@ -141,11 +202,11 @@ export function PlanScreen({
 
       <div className="flex min-w-0 flex-col gap-8">
         {view.report ? (
-          <AgentReportCard report={view.report} you={YOU} names={view.names} />
+          <AgentReportCard report={view.report} you={view.you} names={view.names} />
         ) : null}
         <div className="mt-auto pt-2">
           <ApprovalRow
-            you={YOU}
+            you={view.you}
             approvals={view.approvals}
             sessionId={view.sessionId}
             names={view.names}

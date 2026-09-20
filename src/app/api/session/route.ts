@@ -17,13 +17,8 @@
  */
 
 import { z } from "zod";
-import {
-  DEFAULT_SESSION_ID,
-  getOrCreateDefault,
-  getSession,
-  resetSession,
-  updateSession,
-} from "@/lib/session";
+import { resolveSession, roomFromRequest } from "@/lib/room/identity";
+import { resetSession, updateSession } from "@/lib/session";
 import {
   DEFAULT_VIEWER,
   sessionViewFor,
@@ -101,11 +96,6 @@ const requestSchema = z.discriminatedUnion("action", [
 /* Helpers                                                                     */
 /* -------------------------------------------------------------------------- */
 
-function sessionFor(sessionId: string | undefined): DemoSession | undefined {
-  const id = sessionId ?? DEFAULT_SESSION_ID;
-  return id === DEFAULT_SESSION_ID ? getOrCreateDefault() : getSession(id);
-}
-
 /** The single exit for session data. Nothing on this route responds any other way. */
 function viewResponse(session: DemoSession, viewer: ParticipantId): Response {
   const view: SessionView = sessionViewFor(session, viewer);
@@ -172,14 +162,19 @@ export async function GET(request: Request): Promise<Response> {
 
   // An unknown viewer is a typo, not a guest: 400 rather than quietly handing
   // back Maya's view of a session the caller asked about as someone else.
-  const viewer = participantIdSchema.safeParse(
-    url.searchParams.get("viewer") ?? DEFAULT_VIEWER,
-  );
-  if (!viewer.success) return badRequest(viewer.error.issues);
+  const asked = url.searchParams.get("viewer");
+  if (asked !== null) {
+    const viewer = participantIdSchema.safeParse(asked);
+    if (!viewer.success) return badRequest(viewer.error.issues);
+  }
 
-  const session = sessionFor(url.searchParams.get("sessionId") ?? undefined);
+  // With no parameters at all this reads as "me, where I am", which is what
+  // lets the lobby and the plan screen poll with a bare fetch and still get a
+  // view narrowed to the right person in the right room.
+  const { sessionId, seat } = await roomFromRequest(request);
+  const session = resolveSession(sessionId);
   if (!session) return Response.json({ error: "unknown session" }, { status: 404 });
-  return viewResponse(session, viewer.data);
+  return viewResponse(session, seat);
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -193,17 +188,41 @@ export async function POST(request: Request): Promise<Response> {
   const parsed = requestSchema.safeParse(raw);
   if (!parsed.success) return badRequest(parsed.error.issues);
   const body = parsed.data;
-  const viewer: ParticipantId = body.viewer ?? DEFAULT_VIEWER;
+
+  const room = await roomFromRequest(request, {
+    sessionId: body.sessionId,
+    viewer: body.viewer,
+  });
+  // The cookie outranks the body once this browser has actually joined a room.
+  // Until rooms, the rule below compared two fields the same caller supplied,
+  // which made it a spelling check rather than a permission: anyone could send
+  // `viewer: "sam"` and write Sam's seat. A claimed seat is a fact the server
+  // stored, so checking against it is what turns the rule into one.
+  const viewer: ParticipantId = room.joined ? room.seat : (body.viewer ?? DEFAULT_VIEWER);
+  if (room.joined && body.viewer && body.viewer !== room.seat) {
+    return forbidden(viewer, body.viewer);
+  }
+
+  const session = resolveSession(room.sessionId);
+  if (!session) return Response.json({ error: "unknown session" }, { status: 404 });
 
   if (body.action === "reset") {
     // Total by construction — a fresh seed object, not a diff — so nothing from
     // the previous judge's run can survive into the next one. Resetting is a
     // room-wide act, so it is the one write not scoped to one participant.
-    return viewResponse(resetSession(body.sessionId ?? DEFAULT_SESSION_ID), viewer);
+    //
+    // Which is exactly why it needs a host once there is a room: this replaces
+    // four people's briefs, and the button sits on a screen all four of them
+    // are looking at. A solo session has no host and keeps the old behaviour,
+    // where RESET is a scripted demo beat anybody may press.
+    if (session.hostSeat && session.hostSeat !== viewer) {
+      return Response.json(
+        { error: `only ${session.hostSeat} may reset this room` },
+        { status: 403 },
+      );
+    }
+    return viewResponse(resetSession(session.id), viewer);
   }
-
-  const session = sessionFor(body.sessionId);
-  if (!session) return Response.json({ error: "unknown session" }, { status: 404 });
 
   // Every remaining action edits one person, and that person is you.
   if (body.participantId !== viewer) return forbidden(viewer, body.participantId);

@@ -36,12 +36,25 @@ export default function TitleScreen() {
         ))}
       </div>
 
-      <Link
-        href="/brief"
-        className="disp px-press px-shadow inline-flex h-16 items-center justify-center border-4 border-ink bg-coral px-10 text-[12px] text-white no-underline"
-      >
-        PRESS START
-      </Link>
+      <div className="flex flex-col items-center gap-3">
+        {/* PRESS START still goes straight to the briefing screen. It is the
+            0:15 beat in `docs/DEMO.md` — one person, one agent, live typing —
+            and a room would put a lobby in front of it. The group-chat entry
+            sits beside it rather than in front of it for that reason. */}
+        <Link
+          href="/brief"
+          className="disp px-press px-shadow inline-flex h-16 items-center justify-center border-4 border-ink bg-coral px-10 text-[12px] text-white no-underline"
+        >
+          PRESS START
+        </Link>
+
+        <Link
+          href="/start"
+          className="disp px-press inline-flex h-11 items-center justify-center border-[3px] border-ink bg-card px-6 text-[9px] text-ink no-underline"
+        >
+          START FROM A GROUP CHAT
+        </Link>
+      </div>
 
       <p className="max-w-[540px] text-center text-[15px] font-semibold text-bark">
         You brief your agent in private. It works out the plan with the others

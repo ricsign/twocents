@@ -31,7 +31,8 @@ import {
   type Brief,
 } from "@/lib/types";
 import { displayNameFor } from "@/lib/characters";
-import { getOrCreateDefault, updateSession } from "@/lib/session";
+import { roomFromRequest, resolveSession } from "@/lib/room/identity";
+import { updateSession } from "@/lib/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,6 +43,8 @@ export const dynamic = "force-dynamic";
 
 const requestSchema = z.object({
   participantId: participantIdSchema,
+  /** Which room. Omitted falls back to this browser's cookie, then the demo. */
+  sessionId: z.string().optional(),
   /** The whole conversation so far, newest last, including the human's new line. */
   messages: z.array(briefMessageSchema).min(1),
   /** What the panel currently shows, so extraction refines instead of guessing. */
@@ -122,7 +125,30 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   const { participantId, messages, brief: known } = parsed.data;
-  const session = getOrCreateDefault();
+
+  const { sessionId, seat, joined } = await roomFromRequest(request, {
+    sessionId: parsed.data.sessionId,
+  });
+  const session = resolveSession(sessionId);
+  if (!session) {
+    return NextResponse.json({ error: "No such session." }, { status: 404 });
+  }
+
+  // The rule `/api/session` has always enforced, which this route was missing:
+  // you may brief your own agent and nobody else's. It matters more here than
+  // anywhere, because a brief is where the private ceiling is written — and
+  // the two screens that carry a brief are the only ones that ever see one.
+  //
+  // Gated on `joined` so a solo run is untouched: with no cookie there is no
+  // claim to check against, `viewer` has always been self-asserted, and the
+  // scripted demo briefs `maya` from a browser that never joined anything.
+  if (joined && participantId !== seat) {
+    return NextResponse.json(
+      { error: `${seat} may only brief their own agent, not ${participantId}.` },
+      { status: 403 },
+    );
+  }
+
   // The same resolver the room uses, so an agent briefed in a judges' round
   // calls its human by the name the judge typed.
   const name = displayNameFor(displayNamesOf(session), participantId);
@@ -191,10 +217,19 @@ export async function POST(request: Request): Promise<NextResponse> {
   // only copy of this turn, which is exactly the bug this replaced, so it is
   // logged rather than swallowed — but it still must not fail the request:
   // the person is mid-sentence with their agent.
+  const existing = session.participants[participantId];
+  if (!existing) {
+    return NextResponse.json({ error: "No such seat in this session." }, { status: 404 });
+  }
+
   const saved = updateSession(session.id, {
     participants: {
       ...session.participants,
-      [participantId]: { ...session.participants[participantId], brief },
+      // `draft` is dropped here and only here. It says "we read this off a
+      // group chat, correct it" — and the person just did, so the caveat has
+      // served its purpose and would otherwise sit on the screen telling them
+      // to fix something they already fixed.
+      [participantId]: { ...existing, brief, draft: undefined },
     },
   });
   if (!saved) {

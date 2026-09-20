@@ -15,15 +15,10 @@
 
 import { renderToBuffer } from "@react-pdf/renderer";
 import { ItineraryDocument } from "@/lib/itinerary/document";
-import { DEFAULT_SESSION_ID, getOrCreateDefault, getSession } from "@/lib/session";
-import type { DemoSession } from "@/lib/types";
+import { resolveSession, roomFromRequest } from "@/lib/room/identity";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-function sessionFor(id: string): DemoSession | undefined {
-  return id === DEFAULT_SESSION_ID ? getOrCreateDefault() : getSession(id);
-}
 
 /** `puerto-rico-itinerary.pdf`. What lands in someone's Downloads folder. */
 function fileName(destination: string): string {
@@ -37,10 +32,10 @@ function fileName(destination: string): string {
 
 export async function GET(request: Request): Promise<Response> {
   const url = new URL(request.url);
-  const sessionId = url.searchParams.get("sessionId") ?? DEFAULT_SESSION_ID;
   const wantsDownload = url.searchParams.get("download") === "1";
 
-  const session = sessionFor(sessionId);
+  const { sessionId } = await roomFromRequest(request);
+  const session = resolveSession(sessionId);
   if (!session) {
     return Response.json({ error: "unknown session", sessionId }, { status: 404 });
   }

@@ -16,12 +16,22 @@ import { chatMessagesFrom, type ChatMessage } from "./seed";
  */
 export function BriefScreen({
   participantId,
+  sessionId,
   briefed,
   initialMessages,
   initialBrief,
   names,
 }: {
   participantId: ParticipantId;
+  /**
+   * The room this brief belongs to.
+   *
+   * Sent explicitly rather than left to the cookie because this screen is the
+   * one place a person's private ceiling is written, and a brief that landed
+   * in the wrong session would be both a lost answer and a leak into a room
+   * they are not in. The server still checks it against their seat.
+   */
+  sessionId: string;
   briefed: ParticipantId[];
   initialMessages: ChatMessage[];
   initialBrief: Brief;
@@ -63,6 +73,7 @@ export function BriefScreen({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           action: "clearBrief",
+          sessionId,
           viewer: participantId,
           participantId,
         }),
@@ -85,6 +96,7 @@ export function BriefScreen({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           participantId,
+          sessionId,
           messages: next.map(({ role, text: t }) => ({ role, text: t })),
           brief,
         }),

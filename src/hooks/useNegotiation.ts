@@ -18,7 +18,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { YOU, type ParticipantId } from "@/lib/characters";
+import type { ParticipantId } from "@/lib/characters";
 import {
   NEGOTIATION_ROUND_CAP,
   negotiationEventSchema,
@@ -179,7 +179,7 @@ function reduce(
 /* Hook                                                                        */
 /* -------------------------------------------------------------------------- */
 
-export function useNegotiation(sessionId = "demo"): Negotiation {
+export function useNegotiation(sessionId?: string): Negotiation {
   const [state, setState] = useState<StreamState>(EMPTY);
   const [status, setStatus] = useState<NegotiationStatus>("idle");
   const [speed, setSpeedState] = useState<Speed>(1);
@@ -232,12 +232,19 @@ export function useNegotiation(sessionId = "demo"): Negotiation {
         const response = await fetch("/api/negotiate", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          // `viewer` is what the route narrows each frame to: the town shows
-          // everyone's lines but only ever this person's private reasons, and
-          // the `done` frame arrives carrying one report instead of four. The
-          // plan screen reads that report back from `/api/session` anyway, so
-          // nothing here needs the other three.
-          body: JSON.stringify({ sessionId, viewer: YOU, speed: runSpeed }),
+          // Neither the room nor the viewer is named here any more. The route
+          // reads both off this browser's cookies, which is the only way four
+          // phones can open the same stream and each be narrowed to a
+          // different person — the frames a device gets carry its own private
+          // reasons and, at the end, its own report and nobody else's.
+          //
+          // `sessionId` still goes when the caller has one, because explicit
+          // beats cookie everywhere in this app and a page that knows its room
+          // should not depend on a jar it cannot see.
+          body: JSON.stringify({
+            ...(sessionId ? { sessionId } : {}),
+            speed: runSpeed,
+          }),
           signal: controller.signal,
         });
         if (!response.ok || !response.body) {
@@ -347,7 +354,7 @@ export function useNegotiation(sessionId = "demo"): Negotiation {
         await fetch("/api/session", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ action: "reset", sessionId }),
+          body: JSON.stringify({ action: "reset", ...(sessionId ? { sessionId } : {}) }),
         });
       } catch {
         // A reset that could not reach the server still deserves a fresh run:

@@ -21,6 +21,7 @@
 
 import type { z } from "zod";
 import type { ParticipantId } from "@/lib/characters";
+import { CHAT_PHOTO } from "@/lib/ingest/canned";
 import { cannedItinerary, type CannedTrip } from "@/lib/itinerary/canned";
 import { EMPTY_USAGE, type Usage } from "@/lib/types";
 import type {
@@ -855,6 +856,11 @@ function cannedData(req: CompletionRequest): unknown {
       return FINAL_PLAN;
     case "agent-report":
       return reportFor(req);
+    // It cannot see the picture, so it does not pretend to have read one. See
+    // the note on `CHAT_PHOTO`: every person comes back marked unsure, with no
+    // evidence quote, which is the honest description of having read nothing.
+    case "chat-photo":
+      return CHAT_PHOTO;
   }
 }
 
@@ -1058,6 +1064,8 @@ export class OfflineProvider implements LLMProvider {
         return String(offerCheck(req).note);
       case "itinerary":
         return cannedItinerary(tripFrom(req)).headline;
+      case "chat-photo":
+        return safeStringify(CHAT_PHOTO);
       case "brief-extract":
         return safeStringify(briefExtract(req));
     }

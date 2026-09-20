@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { TopBar } from "@/components/ui/TopBar";
 import { ItineraryScreen } from "@/components/itinerary/ItineraryScreen";
-import { getOrCreateDefault } from "@/lib/session";
+import { notFound } from "next/navigation";
+import { currentRoom, resolveSession } from "@/lib/room/identity";
 
 export const metadata: Metadata = {
   title: "The Itinerary — twocents.ai",
@@ -20,13 +21,16 @@ export const dynamic = "force-dynamic";
  * to get through. Adding a fifth pip would change every screen's header to
  * announce a step that only exists after the demo is already over.
  */
-export default function ItineraryPage() {
-  const session = getOrCreateDefault();
+export default async function ItineraryPage() {
+  const { sessionId } = await currentRoom();
+  const session = resolveSession(sessionId);
+  // A room that is gone is a dead link, not an empty room.
+  if (!session) notFound();
 
   return (
     <div className="flex min-h-screen flex-col bg-parchment">
       <TopBar step={4} tripName={session.tripName} />
-      <ItineraryScreen />
+      <ItineraryScreen sessionId={sessionId} />
     </div>
   );
 }

@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { TopBar } from "@/components/ui/TopBar";
 import { TownScreen } from "@/components/town/TownScreen";
-import { getOrCreateDefault } from "@/lib/session";
+import { notFound } from "next/navigation";
+import { currentRoom, resolveSession } from "@/lib/room/identity";
 import { displayNamesOf } from "@/lib/types";
 
 export const metadata: Metadata = {
@@ -23,13 +24,22 @@ export const dynamic = "force-dynamic";
  * Only the names are read from the session here — no brief, no ceiling. The
  * stream carries everything else.
  */
-export default function TownPage() {
-  const session = getOrCreateDefault();
+export default async function TownPage() {
+  const { sessionId, seat } = await currentRoom();
+  const session = resolveSession(sessionId);
+  // A room that is gone is a dead link, not an empty room.
+  if (!session) notFound();
 
   return (
     <div className="flex min-h-screen flex-col bg-parchment min-[1100px]:h-screen min-[1100px]:overflow-hidden">
       <TopBar step={3} tripName={session.tripName} />
-      <TownScreen names={displayNamesOf(session)} />
+      <TownScreen
+        names={displayNamesOf(session)}
+        sessionId={sessionId}
+        you={seat}
+        // Solo runs have no host, so nobody is locked out of their own demo.
+        canRun={session.hostSeat === null || session.hostSeat === seat}
+      />
     </div>
   );
 }

@@ -22,7 +22,7 @@ import type { Usage } from "@/lib/types";
  * call site, so the cost story is decided in one table instead of scattered
  * across the engine.
  */
-export type ModelTier = "fast" | "smart";
+export type ModelTier = "fast" | "smart" | "seeing";
 
 /**
  * Every distinct thing we ask a model to do. Tagging the call rather than
@@ -37,7 +37,8 @@ export type TaskTag =
   | "offer-check"      // is the trip an agent just proposed actually bookable?
   | "final-plan"       // the agreed plan
   | "agent-report"     // one agent's private report to its human
-  | "itinerary";       // the booked-shaped day-by-day, once all four approve
+  | "itinerary"        // the booked-shaped day-by-day, once all four approve
+  | "chat-photo";      // reading the group chat this whole room came out of
 
 /**
  * Model ids per tier. Overridable by env so a judge's machine, or a last-minute
@@ -46,6 +47,13 @@ export type TaskTag =
 export const MODELS: Record<ModelTier, string> = {
   fast: process.env.TWOCENTS_MODEL_FAST ?? "claude-haiku-4-5",
   smart: process.env.TWOCENTS_MODEL_SMART ?? "claude-sonnet-4-5",
+  // Its own tier rather than borrowing `smart`, which is documented as the
+  // plan and the reports and nothing else — pointing a screenshot at it would
+  // either change what writes the plan or read an image on a model chosen for
+  // prose. This one runs once per room, before anything else exists, and
+  // everything downstream is built on what it reads: a name misread here is
+  // somebody else's demo. So it gets the model that sees best.
+  seeing: process.env.TWOCENTS_MODEL_VISION ?? "claude-opus-5",
 };
 
 /**
@@ -56,6 +64,7 @@ export const MODELS: Record<ModelTier, string> = {
 export const PRICING: Record<ModelTier, { inputPerMTok: number; outputPerMTok: number }> = {
   fast: { inputPerMTok: 1, outputPerMTok: 5 },
   smart: { inputPerMTok: 3, outputPerMTok: 15 },
+  seeing: { inputPerMTok: 5, outputPerMTok: 25 },
 };
 
 /**
@@ -95,6 +104,7 @@ export const TIER_FOR_TASK: Record<TaskTag, ModelTier> = {
   // A document somebody prints and carries. Same reasoning as the plan: this is
   // read word by word, so it gets the model that writes well.
   itinerary: "smart",
+  "chat-photo": "seeing",
 };
 
 /* -------------------------------------------------------------------------- */
@@ -122,6 +132,17 @@ export interface CompletionRequest {
   tag: TaskTag;
   system: string;
   messages: { role: "user" | "assistant"; content: string }[];
+  /**
+   * Pictures to hand to a model that can see.
+   *
+   * Optional, and attached rather than woven into `messages`, so the entire
+   * rest of the app keeps its `content: string` and not one existing caller
+   * changes. The live provider turns these into image blocks ahead of the
+   * first user message's text, which is where a vision model wants them; the
+   * offline provider ignores them completely, because it cannot see and a run
+   * with no key still has to answer.
+   */
+  images?: ImageInput[];
   maxTokens?: number;
   temperature?: number;
   /** Free-form hints the offline provider keys its canned answer off. */
@@ -147,6 +168,18 @@ export interface CompletionRequest {
    * screen waits on.
    */
   timeoutMs?: number;
+}
+
+/**
+ * One picture, ready for the wire.
+ *
+ * Raw base64 and never a data URI: the provider builds the content block, and
+ * bytes that arrive still wrapped in `data:image/png;base64,` would produce a
+ * block the API rejects. Newlines are out for the same reason.
+ */
+export interface ImageInput {
+  mediaType: "image/png" | "image/jpeg" | "image/webp";
+  dataBase64: string;
 }
 
 /**

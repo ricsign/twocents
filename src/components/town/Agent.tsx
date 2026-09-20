@@ -10,7 +10,7 @@
  */
 
 import type { DisplayNames, ParticipantId } from "@/lib/characters";
-import { YOU, displayNameFor } from "@/lib/characters";
+import { displayNameFor } from "@/lib/characters";
 import { CharacterSprite } from "@/components/ui/Sprite";
 
 /** Sprite top-left, in room pixels. Sprites are 112px square. */
@@ -34,15 +34,25 @@ export function Agent({
   speaking,
   thinking,
   names,
+  viewer,
 }: {
   id: ParticipantId;
   speaking: boolean;
   thinking: boolean;
   /** Who is in this seat. The sprite and the colour never change with it. */
   names?: DisplayNames;
+  /**
+   * Whose screen this is, so the right avatar wears the "· YOU" tag.
+   *
+   * Passed down rather than read from the `YOU` constant, which was true only
+   * while there was one person at one laptop. On four phones the same room is
+   * drawn four times and a different seat is "you" in each — and a room that
+   * tags the wrong avatar is the first thing anybody notices.
+   */
+  viewer?: ParticipantId;
 }) {
   const at = STAGE[id];
-  const you = id === YOU;
+  const you = id === viewer;
 
   return (
     <div

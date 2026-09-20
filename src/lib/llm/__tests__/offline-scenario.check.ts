@@ -185,6 +185,10 @@ function judgesSession(topic: string, when: string, seats: readonly Seat[]): Dem
       brief,
       personality: { ...SEED_PERSONALITIES[seat.participantId] },
       approved: false,
+      // A judges' round is one human at one keyboard: nobody claims a seat, so
+      // the other three stay NPCs. The generated run must not depend on that
+      // either way, which is part of what these checks are proving.
+      claimedAt: null,
     };
   }
   return {

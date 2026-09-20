@@ -99,6 +99,43 @@ function jsonSchemaFor(schema: z.ZodType<unknown>): Record<string, unknown> {
 }
 
 /** The emit call in a response, if the model made one. */
+/**
+ * The request's messages, with any pictures riding on the first user turn.
+ *
+ * Images go ahead of that message's text because a vision model reads them in
+ * order and the text is the instruction about the pictures, not the other way
+ * round. Every other call in this app has no `images`, gets the array back
+ * untouched, and keeps its plain `content: string`.
+ */
+function messagesWith(req: CompletionRequest): Anthropic.Messages.MessageParam[] {
+  const images = req.images ?? [];
+  if (images.length === 0) return req.messages;
+
+  const at = req.messages.findIndex((message) => message.role === "user");
+  if (at === -1) {
+    throw new LlmError(req.tag, "images need a user message to ride on");
+  }
+
+  return req.messages.map((message, index) =>
+    index !== at
+      ? message
+      : {
+          role: "user" as const,
+          content: [
+            ...images.map((image) => ({
+              type: "image" as const,
+              source: {
+                type: "base64" as const,
+                media_type: image.mediaType,
+                data: image.dataBase64,
+              },
+            })),
+            { type: "text" as const, text: message.content },
+          ],
+        },
+  );
+}
+
 function emitBlockOf(
   message: Anthropic.Messages.Message,
 ): Anthropic.Messages.ToolUseBlock | undefined {
@@ -186,7 +223,7 @@ export class AnthropicProvider implements LLMProvider {
           max_tokens: req.maxTokens ?? DEFAULT_MAX_TOKENS,
           ...(req.temperature === undefined ? {} : { temperature: req.temperature }),
           system: req.system,
-          messages: req.messages,
+          messages: messagesWith(req),
         },
         { signal },
       ),
@@ -233,7 +270,7 @@ export class AnthropicProvider implements LLMProvider {
           max_tokens: req.maxTokens ?? DEFAULT_MAX_TOKENS,
           ...(req.temperature === undefined ? {} : { temperature: req.temperature }),
           system: req.system,
-          messages: req.messages,
+          messages: messagesWith(req),
           tools,
           tool_choice: searching ? { type: "auto" } : { type: "tool", name: EMIT_TOOL },
         },
@@ -264,7 +301,7 @@ export class AnthropicProvider implements LLMProvider {
             max_tokens: req.maxTokens ?? DEFAULT_MAX_TOKENS,
             system: req.system,
             messages: [
-              ...req.messages,
+              ...messagesWith(req),
               { role: "assistant", content: message.content },
               { role: "user", content: "Now emit that as structured data. Do not search again." },
             ],
@@ -285,9 +322,20 @@ export class AnthropicProvider implements LLMProvider {
     // model refusing to fill them in. Naming the real cause here is the
     // difference between "raise max_tokens" and an afternoon of prompt edits.
     const truncated = answering.stop_reason === "max_tokens";
+    // A safety decline also arrives as a 200 with no emit block, and without
+    // this it is indistinguishable from a model that simply would not answer.
+    // It matters most on the group-chat photo, which is a picture full of real
+    // people's names and messages and is the likeliest call here to be
+    // declined — and where the failure downstream is that the canned roster
+    // gets presented as "what we read in your photo".
+    //
+    // `stop_details` is populated only for a refusal, so it is read only here.
+    const refused = answering.stop_reason === "refusal";
     const because = truncated
       ? ` (hit the ${req.maxTokens ?? DEFAULT_MAX_TOKENS}-token ceiling mid-answer)`
-      : "";
+      : refused
+        ? ` (the model declined: ${answering.stop_details?.category ?? "unstated"})`
+        : "";
 
     if (!block) {
       throw new LlmError(req.tag, `Model did not call the emit tool${because}`);

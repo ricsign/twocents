@@ -387,6 +387,10 @@ export function createSeedSession(id?: string): DemoSession {
       brief: clone(briefs[participantId]),
       personality: clone(SEED_PERSONALITIES[participantId]),
       approved: false,
+      // Nobody has joined a freshly seeded session, including the person about
+      // to sit down at it. That is what keeps a solo run a solo run: with no
+      // claims anywhere, the other three seats are NPCs and approve themselves.
+      claimedAt: null,
     };
   }
 
@@ -401,5 +405,7 @@ export function createSeedSession(id?: string): DemoSession {
     itinerary: null,
     usage: { ...EMPTY_USAGE },
     startedAt: Date.now(),
+    hostSeat: null,
+    runStartedAt: null,
   };
 }
