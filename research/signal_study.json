@@ -1,0 +1,188 @@
+{
+ "design": "Trial 2 \u2014 which single-stock signal deserves the daily pick? (dev 2003\u20132014 \u2192 choose; holdout 2015\u2013data end \u2192 report once)\n\nWhy: trial 1 (the pre-registered composite) lost to a random S&P member on the full sample (see trial_log.md).\nCandidates are fixed here, before any of them was run, and are all textbook signals with no tuned parameters:\n\n    composite   the trial-1 score (baseline)\n    ram         risk-adjusted 6m+12m momentum, skip 1m  (Barroso\u2013Santa-Clara style scaling)\n    resid_mom   12-1m residual momentum vs SPY, scaled by residual vol  (Blitz, Huij & Martens 2011)\n    high52      close / 52-week high  (George & Hwang 2004)\n    pullback    best momentum half, full uptrend (4/4), worst 5-day return  (short-term reversal inside momentum)\n    low_vol     lowest 1y volatility among uptrend names  (Frazzini\u2013Pedersen / Baker et al.)\n    reversal    worst 21-day return among all eligible  (Jegadeesh 1990)\n\nEach day: rank eligible members, buy the next open, hold 21 sessions, 10 bps per side, no stop.\nMetric: average excess over the equal-weighted eligible pool (= a random pick), HAC t (lag 21), for top-1 and top-10.\nSelection rule (fixed in advance): the highest dev-period top-10 t-stat vs random; the holdout is then reported as-is.\n",
+ "results": {
+  "composite": {
+   "dev": {
+    "n": 2899,
+    "top1": 0.00571,
+    "top10": 0.00776,
+    "pool": 0.00829,
+    "spy": 0.00858,
+    "top1_ex": -0.00258,
+    "top1_t": -0.85,
+    "top10_ex": -0.00054,
+    "top10_t": -0.28,
+    "top1_win": 0.583
+   },
+   "holdout": {
+    "n": 2934,
+    "top1": 0.00443,
+    "top10": 0.00603,
+    "pool": 0.0079,
+    "spy": 0.01196,
+    "top1_ex": -0.00347,
+    "top1_t": -1.02,
+    "top10_ex": -0.00187,
+    "top10_t": -0.83,
+    "top1_win": 0.55
+   }
+  },
+  "ram": {
+   "dev": {
+    "n": 3021,
+    "top1": 0.00722,
+    "top10": 0.00667,
+    "pool": 0.00857,
+    "spy": 0.0084,
+    "top1_ex": -0.00134,
+    "top1_t": -0.27,
+    "top10_ex": -0.00189,
+    "top10_t": -0.74,
+    "top1_win": 0.54
+   },
+   "holdout": {
+    "n": 2934,
+    "top1": 0.0142,
+    "top10": 0.01223,
+    "pool": 0.0079,
+    "spy": 0.01196,
+    "top1_ex": 0.0063,
+    "top1_t": 0.95,
+    "top10_ex": 0.00433,
+    "top10_t": 1.19,
+    "top1_win": 0.53
+   }
+  },
+  "resid_mom": {
+   "dev": {
+    "n": 3021,
+    "top1": 0.00336,
+    "top10": 0.00587,
+    "pool": 0.00857,
+    "spy": 0.0084,
+    "top1_ex": -0.0052,
+    "top1_t": -1.1,
+    "top10_ex": -0.00269,
+    "top10_t": -1.12,
+    "top1_win": 0.551
+   },
+   "holdout": {
+    "n": 2934,
+    "top1": 0.0161,
+    "top10": 0.00991,
+    "pool": 0.0079,
+    "spy": 0.01196,
+    "top1_ex": 0.00821,
+    "top1_t": 1.52,
+    "top10_ex": 0.00201,
+    "top10_t": 0.7,
+    "top1_win": 0.549
+   }
+  },
+  "high52": {
+   "dev": {
+    "n": 3021,
+    "top1": 0.00703,
+    "top10": 0.0048,
+    "pool": 0.00857,
+    "spy": 0.0084,
+    "top1_ex": -0.00153,
+    "top1_t": -0.57,
+    "top10_ex": -0.00377,
+    "top10_t": -1.61,
+    "top1_win": 0.57
+   },
+   "holdout": {
+    "n": 2934,
+    "top1": 0.00599,
+    "top10": 0.00541,
+    "pool": 0.0079,
+    "spy": 0.01196,
+    "top1_ex": -0.00191,
+    "top1_t": -0.85,
+    "top10_ex": -0.00249,
+    "top10_t": -1.29,
+    "top1_win": 0.554
+   }
+  },
+  "pullback": {
+   "dev": {
+    "n": 2794,
+    "top1": 0.01226,
+    "top10": 0.00899,
+    "pool": 0.00798,
+    "spy": 0.00818,
+    "top1_ex": 0.00427,
+    "top1_t": 1.62,
+    "top10_ex": 0.00101,
+    "top10_t": 0.72,
+    "top1_win": 0.554
+   },
+   "holdout": {
+    "n": 2913,
+    "top1": 0.00496,
+    "top10": 0.00661,
+    "pool": 0.00735,
+    "spy": 0.01132,
+    "top1_ex": -0.00239,
+    "top1_t": -0.74,
+    "top10_ex": -0.00074,
+    "top10_t": -0.4,
+    "top1_win": 0.517
+   }
+  },
+  "low_vol": {
+   "dev": {
+    "n": 2901,
+    "top1": 0.00688,
+    "top10": 0.00572,
+    "pool": 0.0082,
+    "spy": 0.0085,
+    "top1_ex": -0.00132,
+    "top1_t": -0.42,
+    "top10_ex": -0.00248,
+    "top10_t": -0.97,
+    "top1_win": 0.583
+   },
+   "holdout": {
+    "n": 2934,
+    "top1": -0.00097,
+    "top10": 0.00503,
+    "pool": 0.0079,
+    "spy": 0.01196,
+    "top1_ex": -0.00887,
+    "top1_t": -2.5,
+    "top10_ex": -0.00287,
+    "top10_t": -1.05,
+    "top1_win": 0.504
+   }
+  },
+  "reversal": {
+   "dev": {
+    "n": 3021,
+    "top1": 0.00807,
+    "top10": 0.00633,
+    "pool": 0.00857,
+    "spy": 0.0084,
+    "top1_ex": -0.0005,
+    "top1_t": -0.05,
+    "top10_ex": -0.00224,
+    "top10_t": -0.65,
+    "top1_win": 0.531
+   },
+   "holdout": {
+    "n": 2934,
+    "top1": 0.01748,
+    "top10": 0.0109,
+    "pool": 0.0079,
+    "spy": 0.01196,
+    "top1_ex": 0.00958,
+    "top1_t": 1.29,
+    "top10_ex": 0.003,
+    "top10_t": 0.89,
+    "top1_win": 0.525
+   }
+  }
+ },
+ "chosen_on_dev": "pullback"
+}
